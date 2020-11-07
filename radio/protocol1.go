@@ -89,7 +89,7 @@ func MetisMessageFromBuffer(buf *bytes.Buffer) (*MetisMessage, error) {
 
 // Bytes serializes a MetisMessage as a byte slice
 func (m *MetisMessage) Bytes() ([]byte, error) {
-	log.Printf("[DEBUG] MetisMessage.Bytes(): %#v", *m)
+	// log.Printf("[DEBUG] MetisMessage.Bytes(): %#v", *m)
 	buf := new(bytes.Buffer)
 	err := binary.Write(buf, binary.BigEndian, m)
 	return buf.Bytes(), err
@@ -500,11 +500,11 @@ func (state *MetisState) decodeSamples(frame [512]byte) ([]ReceiverSample, error
 		state.ADCOverload = (rdata & 1 << 24) != 0
 		state.OverflowRecovery = (rdata & 1 << 15) != 0
 		state.FirmwareVersion = byte(rdata & 0xff)
-		log.Printf("[DEBUG] ADCOverload: %v, OverflowRecovery: %v, FirmwareVersion: %v", state.ADCOverload, state.OverflowRecovery, state.FirmwareVersion)
+		// log.Printf("[DEBUG] ADCOverload: %v, OverflowRecovery: %v, FirmwareVersion: %v", state.ADCOverload, state.OverflowRecovery, state.FirmwareVersion)
 	case 0x01:
 		state.ForwardPower = uint16(rdata & 0xffff)
 		state.Temperature = uint16((rdata >> 16) & 0xffff)
-		log.Printf("[DEBUG] ForwardPower: %v, Temperature: %v", state.ForwardPower, state.Temperature)
+		// log.Printf("[DEBUG] ForwardPower: %v, Temperature: %v", state.ForwardPower, state.Temperature)
 	case 0x02:
 		state.Current = uint16(rdata & 0xffff)
 		state.ReversePower = uint16((rdata >> 16) & 0xffff)
@@ -571,11 +571,11 @@ func (state *MetisState) writeMessage(msg MetisMessage) error {
 	if err != nil {
 		return err
 	}
-	cnt, err := state.conn.WriteToUDP(buf.Bytes(), state.deviceAddress)
+	_, err = state.conn.WriteToUDP(buf.Bytes(), state.deviceAddress)
 	if err != nil {
 		return err
 	}
-	log.Printf("[DEBUG] Sent %d byte EP2 message", cnt)
+	// log.Printf("[DEBUG] Sent %d byte EP2 message", cnt)
 	return nil
 }
 
@@ -685,7 +685,7 @@ func (state *MetisState) buildEP2Frame(ep2Address byte, samples []TransmitSample
 		tdata |= uint32(state.preDistortion) << 16
 		// Rest of commands not implemented
 	}
-	log.Printf("[DEBUG] Sending address: %x, value: %x, %d", ep2Address, tdata, tdata)
+	// log.Printf("[DEBUG] Sending address: %x, value: %x, %d", ep2Address, tdata, tdata)
 	data.C1 = byte(tdata >> 24)
 	data.C2 = byte(tdata >> 16)
 	data.C3 = byte(tdata >> 8)
@@ -724,10 +724,11 @@ func (state *MetisState) sendMetisCommand(command byte) error {
 	if err != nil {
 		return err
 	}
-	cnt, err := state.conn.WriteToUDP(buf.Bytes(), state.deviceAddress)
+	// cnt, err := state.conn.WriteToUDP(buf.Bytes(), state.deviceAddress)
+	_, err = state.conn.WriteToUDP(buf.Bytes(), state.deviceAddress)
 	if err != nil {
 		return err
 	}
-	log.Printf("[DEBUG] Sent %d byte command", cnt)
+	// log.Printf("[DEBUG] Sent %d byte command", cnt)
 	return nil
 }
