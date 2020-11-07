@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"time"
 )
@@ -401,14 +402,16 @@ type ReceiverSample struct {
 
 // IFloat returns the I value as a float
 func (rs ReceiverSample) IFloat() float32 {
-	i := uint32(rs.I2)<<16 | uint32(rs.I1)<<16 | uint32(rs.I0)
-	return float32(i) / 8388607.0
+	u := uint32(rs.I2)<<24 | uint32(rs.I1)<<16 | uint32(rs.I0)<<8
+	i := int32(u)
+	return float32(i) / (float32)(math.MaxInt32-256)
 }
 
 // QFloat returns the Q value as a float
 func (rs ReceiverSample) QFloat() float32 {
-	i := uint32(rs.I2)<<16 | uint32(rs.I1)<<16 | uint32(rs.I0)
-	return float32(i) / 8388607.0
+	u := uint32(rs.Q2)<<24 | uint32(rs.Q1)<<16 | uint32(rs.Q0)<<8
+	q := int32(u)
+	return float32(q) / (float32)(math.MaxInt32-256)
 }
 
 // ReceiveSamples receives data from the radio

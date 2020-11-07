@@ -15,6 +15,8 @@
 package main // "github.com/jancona/hpsdrconnector"
 
 import (
+	"bytes"
+	"encoding/binary"
 	"flag"
 	"log"
 	"net"
@@ -110,21 +112,19 @@ var count uint
 
 func outIQ(r *radio.MetisState, samples []radio.ReceiverSample) {
 	// log.Printf("Got samples %#v", samples)
-	// buf := new(bytes.Buffer)
+	// for _, sample := range samples {
+	// 	os.Stdout.Write([]byte{sample.Q2, sample.Q1, sample.Q0, sample.I2, sample.I1, sample.I0})
+	// }
+
+	buf := new(bytes.Buffer)
 	for _, sample := range samples {
-		// binary.Write(buf, binary.LittleEndian, sample.QFloat())
-		// binary.Write(buf, binary.LittleEndian, sample.IFloat())
-		os.Stdout.Write([]byte{sample.Q2, sample.Q1, sample.Q0, sample.I2, sample.I1, sample.I0})
+		binary.Write(buf, binary.LittleEndian, sample.QFloat())
+		binary.Write(buf, binary.LittleEndian, sample.IFloat())
 	}
-	// os.Stdout.Write(buf.Bytes())
+	os.Stdout.Write(buf.Bytes())
+
 	if count%((sampleRate/48000)*2) == 0 {
 		r.SendSamples([]radio.TransmitSample{})
 	}
 	count++
 }
-
-// func outIQ(samples hpsdrEP6Data) {
-// 	for _, sample := range samples {
-// 		os.Stdout.Write([]byte{sample.Q2, sample.Q1, sample.Q0, sample.I2, sample.I1, sample.I0})
-// 	}
-// }
