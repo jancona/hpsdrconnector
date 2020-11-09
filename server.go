@@ -16,6 +16,7 @@ package main // "github.com/jancona/hpsdrconnector"
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"flag"
 	"fmt"
@@ -26,10 +27,12 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/hashicorp/logutils"
 	"github.com/jancona/hpsdrconnector/radio"
+	"github.com/smallnest/ringbuffer"
 )
 
 const bufferSize = 2048
@@ -102,63 +105,45 @@ func main() {
 	r.SetSampleRate(*sampleRate)
 	r.SetRX1Frequency(*frequency)
 	r.SetReceiveLNAGain(*lnaGain)
-	log.Print("[INFO] Starting radio")
+	log.Printf("[INFO] Starting radio on %s", addr.String())
+	var controlConn, iqConn net.Conn
+	rb := ringbuffer.New(int(*sampleRate) * 8 * 10) // 10 seconds
 	err = r.Start()
 	if err != nil {
 		log.Fatalf("Error starting radio %v: %v", *r, err)
 	}
-	var controlConn, iqConn net.Conn
-	log.Printf("[INFO] Listening on IQ port %d", *iqPort)
-	iqListener, err := net.Listen("tcp", fmt.Sprintf(":%d", *iqPort))
-	if err != nil {
-		log.Fatalf("Error listening on port %d: %v", *iqPort, err)
-	}
 	go func() {
+		var count uint
 		for {
-			log.Printf("[DEBUG] Calling Accept on IQ port %d", *iqPort)
-			iqConn, err = iqListener.Accept()
-			if err != nil {
-				log.Fatalf("Error accepting connection on port %d: %v", *iqPort, err)
-			}
-			log.Printf("[INFO] Opened connection on IQ port %d", *iqPort)
-			time.Sleep(1 * time.Second)
-			var count uint
-			for run := true; run; {
-				buf := new(bytes.Buffer)
-				r.ReceiveSamples(
-					func(r *radio.MetisState, samples []radio.ReceiverSample) {
-						// log.Printf("[DEBUG] Got samples %#v", samples)
-						for _, sample := range samples {
-							binary.Write(buf, binary.LittleEndian, sample.QFloat())
-							binary.Write(buf, binary.LittleEndian, sample.IFloat())
-						}
-						cnt, err := iqConn.Write(buf.Bytes())
-						if err != nil {
-							log.Printf("[INFO] Error writing to IQ socket: %v", err)
-							run = false
-						}
-						if cnt <= 0 {
-							log.Printf("[INFO] Wrote %d to IQ socket: %v", cnt, err)
-							run = false
-						}
-						buf.Reset()
-						// Send empty transmit samples to pass config changes and keep watchdog timer happy
-						if count%((*sampleRate/48000)*2) == 0 {
-							r.SendSamples([]radio.TransmitSample{})
-						}
-						count++
-					})
-			}
-			log.Printf("[INFO] Closing IQ socket on port %d", *iqPort)
-			err = iqConn.Close()
-			if err != nil {
-				log.Printf("[INFO] Error closing IQ socket on port %d: %v", *iqPort, err)
-			}
+			buf := new(bytes.Buffer)
+			r.ReceiveSamples(
+				func(r *radio.MetisState, samples []radio.ReceiverSample) {
+					// log.Printf("[DEBUG] Got samples %#v", samples)
+					for _, sample := range samples {
+						binary.Write(buf, binary.LittleEndian, sample.QFloat())
+						binary.Write(buf, binary.LittleEndian, sample.IFloat())
+					}
+					cnt, err := rb.Write(buf.Bytes())
+					if err != nil {
+						log.Printf("[INFO] Error writing to ringbuffer: %v", err)
+					}
+					if cnt <= 0 {
+						log.Printf("[INFO] Wrote %d to ringbuffer", cnt)
+					}
+					buf.Reset()
+					// Send empty transmit samples to pass config changes and keep watchdog timer happy
+					if count%((*sampleRate/48000)*2) == 0 {
+						r.SendSamples([]radio.TransmitSample{})
+					}
+					count++
+				})
 		}
 	}()
+
 	if *controlPort > 0 {
 		log.Printf("[INFO] Listening on control port %d", *controlPort)
-		controlListener, err := net.Listen("tcp", fmt.Sprintf(":%d", *controlPort))
+		config := newReuseAddrListenConfig()
+		controlListener, err := config.Listen(context.Background(), "tcp", fmt.Sprintf("127.0.0.1:%d", *controlPort))
 		if err != nil {
 			log.Fatalf("Error listening on control port %d: %v", *controlPort, err)
 		}
@@ -224,6 +209,58 @@ func main() {
 			}
 		}()
 	}
+	// time.Sleep(5 * time.Second)
+	log.Printf("[INFO] Listening on IQ port %d", *iqPort)
+	config := newReuseAddrListenConfig()
+	iqListener, err := config.Listen(context.Background(), "tcp", fmt.Sprintf("127.0.0.1:%d", *iqPort))
+	if err != nil {
+		log.Fatalf("Error listening on port %d: %v", *iqPort, err)
+	}
+	go func() {
+		for {
+			log.Printf("[INFO] Calling Accept on IQ port %d", *iqPort)
+			iqConn, err = iqListener.Accept()
+			if err != nil {
+				log.Fatalf("Error accepting connection on port %d: %v", *iqPort, err)
+			}
+			log.Printf("[INFO] Opened connection on IQ port %d", *iqPort)
+
+			// dummy := make([]byte, 128)
+			// iqConn.SetReadDeadline(time.Now().Add(1 * time.Second))
+			// _, err := iqConn.Read(dummy)
+			// if err != nil {
+			// 	log.Printf("[ERROR] Error reading IQ socket: %v", err)
+			// }
+
+			b := make([]byte, 504)
+			for run := true; run; {
+				cnt, err := rb.Read(b)
+				if cnt > 0 {
+					_, err := iqConn.Write(b[:cnt])
+					if err != nil {
+						log.Printf("[INFO] Error writing to IQ port %d: %v", *iqPort, err)
+						run = false
+					}
+				}
+				if err != nil && err != ringbuffer.ErrIsEmpty {
+					log.Printf("[INFO] Error reading from ringbuffer: %v", err)
+					run = false
+				}
+				if cnt == 0 || err == ringbuffer.ErrIsEmpty {
+					// log.Printf("[INFO] No data read")
+					// run = false
+					// time.Sleep(time.Second / time.Duration(*sampleRate*2))
+					time.Sleep(time.Second / time.Duration(*sampleRate))
+				}
+			}
+			log.Printf("[INFO] Closing IQ socket on port %d", *iqPort)
+			err = iqConn.Close()
+			if err != nil {
+				log.Printf("[INFO] Error closing IQ socket on port %d: %v", *iqPort, err)
+			}
+		}
+	}()
+
 	signalChan := make(chan os.Signal, 1)
 	cleanupDone := make(chan struct{})
 	signal.Notify(signalChan, os.Interrupt)
@@ -240,4 +277,15 @@ func main() {
 		close(cleanupDone)
 	}()
 	<-cleanupDone
+}
+
+func newReuseAddrListenConfig() net.ListenConfig {
+	return net.ListenConfig{
+		Control: func(network, address string, c syscall.RawConn) error {
+			return c.Control(func(descriptor uintptr) {
+				syscall.SetsockoptInt(int(descriptor), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+			})
+		},
+	}
+
 }
