@@ -15,24 +15,23 @@
 package main // "github.com/jancona/hpsdrconnector"
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"os"
 	"os/signal"
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
-	"time"
 
 	"github.com/hashicorp/logutils"
 	"github.com/jancona/hpsdrconnector/radio"
-	"github.com/smallnest/ringbuffer"
 )
 
 const bufferSize = 2048
@@ -49,7 +48,6 @@ var (
 )
 
 func init() {
-	// {"version", no_argument, NULL, 'v'},
 	flag.UintVar(iqPort, "p", 4590, "IQ listen port")
 	flag.UintVar(frequency, "f", 7100000, "Tune to specified frequency in Hz")
 	flag.UintVar(sampleRate, "s", 96000, "Use the specified samplerate: one of 48000, 96000, 192000, 384000")
@@ -103,42 +101,11 @@ func main() {
 	}
 	r := radio.NewMetisState(addr)
 	r.SetSampleRate(*sampleRate)
+	r.SetTXFrequency(*frequency)
 	r.SetRX1Frequency(*frequency)
 	r.SetReceiveLNAGain(*lnaGain)
-	log.Printf("[INFO] Starting radio on %s", addr.String())
 	var controlConn, iqConn net.Conn
-	rb := ringbuffer.New(int(*sampleRate) * 8 * 10) // 10 seconds
-	err = r.Start()
-	if err != nil {
-		log.Fatalf("Error starting radio %v: %v", *r, err)
-	}
-	go func() {
-		var count uint
-		for {
-			buf := new(bytes.Buffer)
-			r.ReceiveSamples(
-				func(r *radio.MetisState, samples []radio.ReceiverSample) {
-					// log.Printf("[DEBUG] Got samples %#v", samples)
-					for _, sample := range samples {
-						binary.Write(buf, binary.LittleEndian, sample.QFloat())
-						binary.Write(buf, binary.LittleEndian, sample.IFloat())
-					}
-					cnt, err := rb.Write(buf.Bytes())
-					if err != nil {
-						log.Printf("[INFO] Error writing to ringbuffer: %v", err)
-					}
-					if cnt <= 0 {
-						log.Printf("[INFO] Wrote %d to ringbuffer", cnt)
-					}
-					buf.Reset()
-					// Send empty transmit samples to pass config changes and keep watchdog timer happy
-					if count%((*sampleRate/48000)*2) == 0 {
-						r.SendSamples([]radio.TransmitSample{})
-					}
-					count++
-				})
-		}
-	}()
+	distributor := NewDistributor()
 
 	if *controlPort > 0 {
 		log.Printf("[INFO] Listening on control port %d", *controlPort)
@@ -154,13 +121,12 @@ func main() {
 				if err != nil {
 					log.Fatalf("Error accepting connection on control port %d: %v", *controlPort, err)
 				}
-				log.Printf("[INFO] Opened connection on control port %d", *controlPort)
-				run := true
+				log.Printf("[DEBUG] Opened connection on control port %d", *controlPort)
 				buf := make([]byte, 128)
-				for run {
+				for run := true; run; {
 					cnt, err := controlConn.Read(buf)
 					if err != nil {
-						log.Printf("[ERROR] Error reading control socket: %v", err)
+						log.Printf("[DEBUG] Error reading control socket: %v", err)
 						run = false
 						break
 					}
@@ -168,27 +134,28 @@ func main() {
 						run = false
 						break
 					}
-					cmd := strings.Trim(string(buf), "\x00\n ")
-					log.Printf("[INFO] Received command '%s'", cmd)
+					cmd := strings.Trim(string(buf[:cnt]), "\x00\n ")
+					log.Printf("[DEBUG] Received command '%s'", cmd)
 					tok := strings.Split(cmd, ":")
 					if len(tok) != 2 {
-						log.Printf("[INFO] Ignoring invalid command '%s'", cmd)
+						log.Printf("[DEBUG] Ignoring invalid command '%s'", cmd)
 						continue
 					}
 					switch tok[0] {
 					case "samp_rate":
 						sr, err := strconv.ParseUint(tok[1], 10, 64)
 						if err != nil {
-							log.Printf("[INFO] Ignoring bad sample rate value in control command '%s': %v", cmd, err)
+							log.Printf("[DEBUG] Ignoring bad sample rate value in control command '%s': %v", cmd, err)
 						}
 						*sampleRate = uint(sr)
 						r.SetSampleRate(*sampleRate)
 					case "center_freq":
 						f, err := strconv.ParseUint(tok[1], 10, 64)
 						if err != nil {
-							log.Printf("[INFO] Ignoring bad center frrequency value in control command '%s': %v", cmd, err)
+							log.Printf("[DEBUG] Ignoring bad center frrequency value in control command '%s': %v", cmd, err)
 						}
 						*frequency = uint(f)
+						r.SetTXFrequency(*frequency)
 						r.SetRX1Frequency(*frequency)
 					case "rf_gain":
 						val := strings.ToLower(tok[1])
@@ -197,19 +164,19 @@ func main() {
 						} else {
 							gain, err := strconv.ParseUint(val, 10, 64)
 							if err != nil {
-								log.Printf("[INFO] Ignoring bad gain value in control command '%s': %v", cmd, err)
+								log.Printf("[DEBUG] Ignoring bad gain value in control command '%s': %v", cmd, err)
 							}
 							*lnaGain = uint(gain)
 						}
 						r.SetReceiveLNAGain(*lnaGain)
 					default:
-						log.Printf("[INFO] Ignoring unsupported control command: %s", cmd)
+						log.Printf("[DEBUG] Ignoring unsupported control command: %s", cmd)
 					}
 				}
 			}
 		}()
 	}
-	// time.Sleep(5 * time.Second)
+
 	log.Printf("[INFO] Listening on IQ port %d", *iqPort)
 	config := newReuseAddrListenConfig()
 	iqListener, err := config.Listen(context.Background(), "tcp", fmt.Sprintf("127.0.0.1:%d", *iqPort))
@@ -218,49 +185,50 @@ func main() {
 	}
 	go func() {
 		for {
-			log.Printf("[INFO] Calling Accept on IQ port %d", *iqPort)
+			log.Printf("[DEBUG] Calling Accept on IQ port %d", *iqPort)
 			iqConn, err = iqListener.Accept()
 			if err != nil {
 				log.Fatalf("Error accepting connection on port %d: %v", *iqPort, err)
 			}
-			log.Printf("[INFO] Opened connection on IQ port %d", *iqPort)
-
-			// dummy := make([]byte, 128)
-			// iqConn.SetReadDeadline(time.Now().Add(1 * time.Second))
-			// _, err := iqConn.Read(dummy)
-			// if err != nil {
-			// 	log.Printf("[ERROR] Error reading IQ socket: %v", err)
-			// }
-
-			b := make([]byte, 504)
-			for run := true; run; {
-				cnt, err := rb.Read(b)
-				if cnt > 0 {
-					_, err := iqConn.Write(b[:cnt])
+			log.Printf("[DEBUG] Opened connection on IQ port %d", *iqPort)
+			go func(conn net.Conn) {
+				sampleChan := distributor.Listen()
+				defer distributor.Close(sampleChan)
+				defer func() {
+					log.Printf("[DEBUG] Closing IQ socket on port %d", *iqPort)
+					err = conn.Close()
 					if err != nil {
-						log.Printf("[INFO] Error writing to IQ port %d: %v", *iqPort, err)
-						run = false
+						log.Printf("[DEBUG] Error closing IQ socket on port %d: %v", *iqPort, err)
+					}
+				}()
+				var samples []radio.ReceiverSample
+				for run := true; run; {
+					samples, run = <-sampleChan
+					if run {
+						buf := make([]byte, len(samples)*8)
+						for i, sample := range samples {
+							binary.LittleEndian.PutUint32(buf[i*8:], math.Float32bits(sample.QFloat()))
+							binary.LittleEndian.PutUint32(buf[i*8+4:], math.Float32bits(sample.IFloat()))
+						}
+						_, err := conn.Write(buf)
+						if err != nil {
+							log.Printf("[DEBUG] Error writing to IQ port %d: %v", *iqPort, err)
+							run = false
+						}
 					}
 				}
-				if err != nil && err != ringbuffer.ErrIsEmpty {
-					log.Printf("[INFO] Error reading from ringbuffer: %v", err)
-					run = false
-				}
-				if cnt == 0 || err == ringbuffer.ErrIsEmpty {
-					// log.Printf("[INFO] No data read")
-					// run = false
-					// time.Sleep(time.Second / time.Duration(*sampleRate*2))
-					time.Sleep(time.Second / time.Duration(*sampleRate))
-				}
-			}
-			log.Printf("[INFO] Closing IQ socket on port %d", *iqPort)
-			err = iqConn.Close()
-			if err != nil {
-				log.Printf("[INFO] Error closing IQ socket on port %d: %v", *iqPort, err)
-			}
+			}(iqConn)
 		}
 	}()
 
+	log.Printf("[INFO] Starting radio on %s", addr.String())
+	err = r.Start()
+	if err != nil {
+		log.Fatalf("Error starting radio %v: %v", *r, err)
+	}
+	go distributor.Distribute(r)
+
+	// wait for a close signal then clean up
 	signalChan := make(chan os.Signal, 1)
 	cleanupDone := make(chan struct{})
 	signal.Notify(signalChan, os.Interrupt)
@@ -286,6 +254,66 @@ func newReuseAddrListenConfig() net.ListenConfig {
 				syscall.SetsockoptInt(int(descriptor), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
 			})
 		},
+	}
+
+}
+
+// Distributor distributes received samples to one or more IQ goroutines
+type Distributor struct {
+	sync.RWMutex
+	listeners map[chan []radio.ReceiverSample]bool
+	count     uint
+}
+
+// NewDistributor constructs a distributor
+func NewDistributor() Distributor {
+	return Distributor{
+		listeners: map[chan []radio.ReceiverSample]bool{},
+	}
+}
+
+// Listen returms a channel for a listening goroutine to receive samples
+func (d *Distributor) Listen() chan []radio.ReceiverSample {
+	c := make(chan []radio.ReceiverSample, *sampleRate) // one second buffer
+	d.Lock()
+	d.listeners[c] = true
+	d.Unlock()
+	log.Printf("[DEBUG] Added listener %v", c)
+	return c
+}
+
+// Close closes a channel when a goroutine is done
+func (d *Distributor) Close(c chan []radio.ReceiverSample) {
+	log.Printf("[DEBUG] Removing listener %v", c)
+	d.Lock()
+	delete(d.listeners, c)
+	d.Unlock()
+	close(c)
+	log.Printf("[DEBUG] Removed listener %v", c)
+}
+
+// Distribute receives samples from a radio and distributes them to listening goroutines
+func (d *Distributor) Distribute(r *radio.MetisState) {
+	for {
+		r.ReceiveSamples(
+			func(r *radio.MetisState, samples []radio.ReceiverSample) {
+				// log.Printf("[DEBUG] Got samples %#v", samples)
+				d.RLock()
+				for sampleChan := range d.listeners {
+					select {
+					case sampleChan <- samples:
+						// fmt.Println("sent message")
+					default:
+						// Drop unsent samples on the floor
+					}
+				}
+				d.RUnlock()
+				// Send empty transmit samples to pass config changes and keep watchdog timer happy
+				if d.count%(*sampleRate/48000) == 0 {
+					r.SendSamples([]radio.TransmitSample{})
+				}
+				d.count += uint(len(samples))
+			})
 	}
 
 }

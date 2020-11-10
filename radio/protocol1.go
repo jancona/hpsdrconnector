@@ -82,7 +82,7 @@ func MetisMessageFromBuffer(buf *bytes.Buffer) (*MetisMessage, error) {
 		mm.ID01 != 0x01 {
 		return nil, fmt.Errorf("Received corrupted message: %#v", mm)
 	}
-	log.Printf("[DEBUG] Received MetisMessage: Endpoint %x, SequenceNumber %d", mm.EndPoint, mm.SequenceNumber)
+	// log.Printf("[DEBUG] Received MetisMessage: Endpoint %02x, SequenceNumber %d", mm.EndPoint, mm.SequenceNumber)
 
 	return &mm, nil
 }
@@ -121,7 +121,7 @@ type MetisState struct {
 	// 0x00	[2]	Duplex (0=off, 1=on)
 	duplex bool // false=off, true=on
 	// 0x01	[31:0]	TX1 NCO Frequency in Hz
-	tx1Frequency uint32
+	txFrequency uint32
 	// 0x02	[31:0]	RX1 NCO Frequency in Hz
 	// 0x03	[31:0]	If present, RX2 NCO Frequency in Hz
 	// 0x04	[31:0]	If present, RX3 NCO Frequency in Hz
@@ -291,14 +291,16 @@ func (state *MetisState) SetSampleRate(speed uint) error {
 	return nil
 }
 
+// SetTXFrequency sets the TX NCO frequency
+func (state *MetisState) SetTXFrequency(frequency uint) {
+	log.Printf("[DEBUG] SetTXFrequency: %d", frequency)
+	state.txFrequency = uint32(frequency)
+}
+
 // SetRX1Frequency sets the RX1 NCO frequency
 func (state *MetisState) SetRX1Frequency(frequency uint) {
 	log.Printf("[DEBUG] SetRX1Frequency: %d", frequency)
 	state.rx1Frequency = uint32(frequency)
-	// Radio isn't happy if TX frequency is 0
-	if state.tx1Frequency == 0 {
-		state.tx1Frequency = state.rx1Frequency
-	}
 }
 
 // SetReceiveLNAGain sets the LNA gain. Valid values are between 0 (-12dB) and 60 (48dB)
@@ -536,6 +538,7 @@ func (state *MetisState) SendSamples(samples []TransmitSample) error {
 		s = make([]TransmitSample, 126)
 		copy(s, samples)
 	}
+
 	frame1, err = state.buildEP2Frame(state.nextEP2Address, s[:63])
 	if err != nil {
 		return err
@@ -558,7 +561,6 @@ func (state *MetisState) SendSamples(samples []TransmitSample) error {
 	msg := state.NewMetisMessage(EP2, frame1, frame2)
 
 	err = state.writeMessage(msg)
-
 	if err != nil {
 		return err
 	}
@@ -595,10 +597,6 @@ func (state *MetisState) buildEP2Frame(ep2Address byte, samples []TransmitSample
 		Sync: [3]byte{0x7F, 0x7F, 0x7F},
 	}
 	copy(data.Samples[:], samples)
-	if state.mox {
-		data.C0 |= 0x01
-	}
-	data.C0 |= ep2Address << 1
 
 	var tdata uint32
 	switch ep2Address {
@@ -618,8 +616,9 @@ func (state *MetisState) buildEP2Frame(ep2Address byte, samples []TransmitSample
 			tdata |= 1 << 2
 		}
 	case 0x01:
-		tdata = state.tx1Frequency
+		tdata = state.txFrequency
 	case 0x02:
+		// log.Printf("[DEBUG] Set rx1Frequency to %d", state.rx1Frequency)
 		tdata = state.rx1Frequency
 	case 0x03:
 		tdata = state.rx2Frequency
@@ -685,11 +684,17 @@ func (state *MetisState) buildEP2Frame(ep2Address byte, samples []TransmitSample
 		tdata |= uint32(state.preDistortion) << 16
 		// Rest of commands not implemented
 	}
-	// log.Printf("[DEBUG] Sending address: %x, value: %x, %d", ep2Address, tdata, tdata)
+
+	data.C0 = 0
+	if state.mox {
+		data.C0 |= 0x01
+	}
+	data.C0 |= ep2Address << 1
 	data.C1 = byte(tdata >> 24)
 	data.C2 = byte(tdata >> 16)
 	data.C3 = byte(tdata >> 8)
 	data.C4 = byte(tdata)
+	log.Printf("[DEBUG] Sending address: %02x, %d (decimal)\n\t\t\tdata.C0=%02x, data.C1=%02x, data.C2=%02x, data.C3=%02x, data.C4=%02x", ep2Address, tdata, data.C0, data.C1, data.C2, data.C3, data.C4)
 
 	buf := new(bytes.Buffer)
 	err := binary.Write(buf, binary.BigEndian, data)

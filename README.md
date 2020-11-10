@@ -64,15 +64,21 @@ sdrs = {
 
 Command line options:
 ```
-  -debug
-    	Emit debug log messages on stderr
-  -frequency uint
-    	Tune to specified frequency in Hz (default 7100000)
-  -gain uint
-    	LNA gain between 0 (-12dB) and 60 (48dB) (default 20)
-  -radio string
-    	IP address of radio (default use first radio discovered)
-  -samplerate uint
-    	Use the specified samplerate: one of 48000, 96000, 192000, 384000 (default 96000)
+  -c, --control uint
+        control socket port (default disabled)
+  -p, --port uint
+        IQ listen port (default 4590)
+  -d, --debug
+        Emit debug log messages on stderr
+  -f, --frequency uint
+        Tune to specified frequency in Hz (default 7100000)
+  -g, --gain uint
+        LNA gain between 0 (-12dB) and 60 (48dB) (default 20)
+  -r, --radio string
+        IP address of radio (default use first radio discovered)
+  -s, --samplerate uint
+        Use the specified samplerate: one of 48000, 96000, 192000, 384000 (default 96000)
+  -v, --version
+        Display program version and exit
 ```
 
