@@ -29,9 +29,10 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/hashicorp/logutils"
-	"github.com/jancona/hpsdrconnector/radio"
+	"github.com/jancona/hpsdr"
 )
 
 const bufferSize = 2048
@@ -89,7 +90,7 @@ func main() {
 			log.Fatalf("Error resolving receiver address %s: %v", a, err)
 		}
 	} else {
-		devices, err := radio.DiscoverDevices()
+		devices, err := hpsdr.DiscoverDevices()
 		if err != nil {
 			log.Printf("[ERROR] Error discovering devices:%v", err)
 		}
@@ -99,7 +100,7 @@ func main() {
 		}
 		addr = devices[0].Network.Address
 	}
-	r := radio.NewMetisState(addr)
+	r := hpsdr.NewProtocol1Radio(addr)
 	r.SetSampleRate(*sampleRate)
 	r.SetTXFrequency(*frequency)
 	r.SetRX1Frequency(*frequency)
@@ -201,7 +202,7 @@ func main() {
 						log.Printf("[DEBUG] Error closing IQ socket on port %d: %v", *iqPort, err)
 					}
 				}()
-				var samples []radio.ReceiverSample
+				var samples []hpsdr.ReceiverSample
 				for run := true; run; {
 					samples, run = <-sampleChan
 					if run {
@@ -227,6 +228,7 @@ func main() {
 		log.Fatalf("Error starting radio %v: %v", *r, err)
 	}
 	go distributor.Distribute(r)
+	go sendTransmitSamples(r)
 
 	// wait for a close signal then clean up
 	signalChan := make(chan os.Signal, 1)
@@ -258,23 +260,31 @@ func newReuseAddrListenConfig() net.ListenConfig {
 
 }
 
+func sendTransmitSamples(r *hpsdr.Protocol1Radio) {
+	ts := make([]hpsdr.TransmitSample, hpsdr.TransmitSamplesPerMessage)
+	for {
+		// Send empty transmit samples to pass config changes and keep watchdog timer happy
+		r.SendSamples(ts)
+		time.Sleep(time.Second / (48000 / hpsdr.TransmitSamplesPerMessage))
+	}
+}
+
 // Distributor distributes received samples to one or more IQ goroutines
 type Distributor struct {
 	sync.RWMutex
-	listeners map[chan []radio.ReceiverSample]bool
-	count     uint
+	listeners map[chan []hpsdr.ReceiverSample]bool
 }
 
 // NewDistributor constructs a distributor
 func NewDistributor() Distributor {
 	return Distributor{
-		listeners: map[chan []radio.ReceiverSample]bool{},
+		listeners: map[chan []hpsdr.ReceiverSample]bool{},
 	}
 }
 
 // Listen returms a channel for a listening goroutine to receive samples
-func (d *Distributor) Listen() chan []radio.ReceiverSample {
-	c := make(chan []radio.ReceiverSample, *sampleRate) // one second buffer
+func (d *Distributor) Listen() chan []hpsdr.ReceiverSample {
+	c := make(chan []hpsdr.ReceiverSample, *sampleRate) // one second buffer
 	d.Lock()
 	d.listeners[c] = true
 	d.Unlock()
@@ -283,7 +293,7 @@ func (d *Distributor) Listen() chan []radio.ReceiverSample {
 }
 
 // Close closes a channel when a goroutine is done
-func (d *Distributor) Close(c chan []radio.ReceiverSample) {
+func (d *Distributor) Close(c chan []hpsdr.ReceiverSample) {
 	log.Printf("[DEBUG] Removing listener %v", c)
 	d.Lock()
 	delete(d.listeners, c)
@@ -293,10 +303,10 @@ func (d *Distributor) Close(c chan []radio.ReceiverSample) {
 }
 
 // Distribute receives samples from a radio and distributes them to listening goroutines
-func (d *Distributor) Distribute(r *radio.MetisState) {
+func (d *Distributor) Distribute(r *hpsdr.Protocol1Radio) {
 	for {
 		r.ReceiveSamples(
-			func(r *radio.MetisState, samples []radio.ReceiverSample) {
+			func(r *hpsdr.Protocol1Radio, samples []hpsdr.ReceiverSample) {
 				// log.Printf("[DEBUG] Got samples %#v", samples)
 				d.RLock()
 				for sampleChan := range d.listeners {
@@ -308,11 +318,6 @@ func (d *Distributor) Distribute(r *radio.MetisState) {
 					}
 				}
 				d.RUnlock()
-				// Send empty transmit samples to pass config changes and keep watchdog timer happy
-				if d.count%(*sampleRate/48000) == 0 {
-					r.SendSamples([]radio.TransmitSample{})
-				}
-				d.count += uint(len(samples))
 			})
 	}
 

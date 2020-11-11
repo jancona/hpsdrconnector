@@ -3,7 +3,7 @@ An OpenWebRX connector for HPSDR radios
 
 ## Building
 1. Download Go from https://golang.org/dl/
-2. Install Go, following the instructions for you OS at https://golang.org/doc/install. Be sure to add the Go bin directory to your PATH if the installer hasn't done that for you.
+2. Install Go, following the instructions for your OS at https://golang.org/doc/install. Be sure to add the Go bin directory to your PATH if the installer hasn't done that for you.
 3. In the `hpsdrconnector` directory, run `go install`
 4. Test your installation by running `hpsdrconnector -h`. You should see a usage message.
 

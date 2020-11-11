@@ -1,2 +1,4 @@
 github.com/hashicorp/logutils v1.0.0 h1:dLEQVugN8vlakKOUE3ihGLTZJRB4j+M2cdTm/ORI65Y=
 github.com/hashicorp/logutils v1.0.0/go.mod h1:QIAnNjmIWmVIIkWDTG1z5v++HQmx9WQRO+LraFDTW64=
+github.com/jancona/hpsdr v0.0.0-20201111012617-655a48605f7d h1:mNV23tQ8iJOUuFA12LRfHGa4LIpVYk4rGox29ZVK6dk=
+github.com/jancona/hpsdr v0.0.0-20201111012617-655a48605f7d/go.mod h1:8UyVPIlEjd0/U712FMrzK2Ulixhoi3yWuK8DF37jBqI=
