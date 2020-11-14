@@ -24,7 +24,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -45,7 +44,6 @@ var (
 	controlPort *uint   = flag.Uint("control", 0, "control socket port (default disabled)")
 	radioIP     *string = flag.String("radio", "", "IP address of radio (default use first radio discovered)")
 	isDebug     *bool   = flag.Bool("debug", false, "Emit debug log messages on stdout")
-	version     *bool   = flag.Bool("version", false, "Display program version and exit")
 )
 
 func init() {
@@ -56,7 +54,6 @@ func init() {
 	flag.UintVar(controlPort, "c", 0, "control socket port (default disabled)")
 	flag.StringVar(radioIP, "r", "", "IP address of radio (default use first radio discovered)")
 	flag.BoolVar(isDebug, "d", false, "Emit debug log messages on stdout")
-	flag.BoolVar(version, "v", false, "Display program version and exit")
 }
 
 func main() {
@@ -73,14 +70,6 @@ func main() {
 	}
 	log.SetOutput(filter)
 	log.Print("[DEBUG] Debug is on")
-	if *version {
-		bi, ok := debug.ReadBuildInfo()
-		if !ok {
-			log.Fatal("Unable to retrieve BuildInfo")
-		}
-		fmt.Printf("%s %s\n", os.Args[0], bi.Main.Version)
-		os.Exit(0)
-	}
 	var addr *net.UDPAddr
 	var err error
 	if *radioIP != "" {

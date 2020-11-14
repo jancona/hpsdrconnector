@@ -9,7 +9,7 @@ An OpenWebRX connector for HPSDR radios
 
 ## Limitations
 * Only the original HPSDR Protocol 1 is supported.
-* So far, this has only been tested with the [Hermes-Lite 2](https://github.com/softerhardware/Hermes-Lite2/wiki). Feel free to create [issues](https://github.com/jancona/hpsdrconnector/issues) with reports of success or failure using other hardware. 
+* So far, this has only been tested with the [Hermes-Lite 2](https://github.com/softerhardware/Hermes-Lite2/wiki). Feel free to create [issues](https://github.com/jancona/hpsdrconnector/issues) with reports of success or failure using other hardware.
 * Currently only one receiver is supported.
 
 # Usage
@@ -78,7 +78,5 @@ Command line options:
         IP address of radio (default use first radio discovered)
   -s, --samplerate uint
         Use the specified samplerate: one of 48000, 96000, 192000, 384000 (default 96000)
-  -v, --version
-        Display program version and exit
 ```
 
