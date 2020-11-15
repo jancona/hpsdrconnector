@@ -8,9 +8,9 @@ on:
   # pull_request:
   #   branches: [ $default-branch ]
 
-  jobs:
+jobs:
 
-    build:
+  build:
     name: Build
     runs-on: ubuntu-latest
     steps:
