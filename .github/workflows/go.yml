@@ -16,7 +16,7 @@ jobs:
     - name: Set up Go 1.x
       uses: actions/setup-go@v2
       with:
-        go-version: ^1.13
+        go-version: ^1.15
 
     - name: Check out code into the Go module directory
       uses: actions/checkout@v2
@@ -26,7 +26,16 @@ jobs:
         go get -v -t -d ./...
 
     - name: Build
-      run: go build -v .
+      run: GOOS=linux GOARCH=amd64 go build -v -o hpsdrconnector.$GOOS_$GOARCH
+
+    - name: Build
+      run: GOOS=windows GOARCH=amd64 go build -v -o hpsdrconnector.$GOOS_$GOARCH
+
+    - name: Build
+      run: GOOS=darwin GOARCH=amd64 go build -v -o hpsdrconnector.$GOOS_$GOARCH
+
+    - name: Build
+      run: GOOS=linux GOARCH=arm go build -v -o hpsdrconnector.$GOOS_$GOARCH
 
     - name: Test
       run: go test -v .
