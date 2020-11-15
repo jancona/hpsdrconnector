@@ -27,7 +27,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/hashicorp/logutils"
@@ -250,17 +249,6 @@ func main() {
 		close(cleanupDone)
 	}()
 	<-cleanupDone
-}
-
-func newReuseAddrListenConfig() net.ListenConfig {
-	return net.ListenConfig{
-		Control: func(network, address string, c syscall.RawConn) error {
-			return c.Control(func(descriptor uintptr) {
-				syscall.SetsockoptInt(int(descriptor), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
-			})
-		},
-	}
-
 }
 
 func sendTransmitSamples(r *hpsdr.Protocol1Radio) {
