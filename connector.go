@@ -70,6 +70,20 @@ func main() {
 	}
 	log.SetOutput(filter)
 	log.Print("[DEBUG] Debug is on")
+
+	switch *sampleRate {
+	case 48000:
+	case 96000:
+	case 192000:
+	case 384000:
+	default:
+		log.Fatalf("Invalid sample rate %d. Must be one of 48000, 96000, 192000, 384000", *sampleRate)
+	}
+
+	if *lnaGain > 60 {
+		log.Fatalf("Invalid LNA gain %d. Must be between 0 and 60", *lnaGain)
+	}
+
 	var addr *net.UDPAddr
 	var err error
 	if *radioIP != "" {
@@ -81,7 +95,7 @@ func main() {
 	} else {
 		devices, err := hpsdr.DiscoverDevices()
 		if err != nil {
-			log.Printf("[ERROR] Error discovering devices:%v", err)
+			log.Printf("[ERROR] Error discovering devices: %v", err)
 		}
 		log.Printf("[DEBUG] main: devices: %#v", devices)
 		if len(devices) == 0 {
