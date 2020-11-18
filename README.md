@@ -12,10 +12,10 @@ There are now released binaries, so you no longer have to install Go to build fr
 
 | Operating System | Executable Name |
 | ---------------- | --------------- |
-| Windows | [hpsdrconnector.exe](/jancona/hpsdrconnector/releases/latest/download/hpsdrconnector.exe)
-| Desktop Linux | [hpsdrconnector_linux_amd64](/jancona/hpsdrconnector/releases/latest/download/hpsdrconnector_linux_amd64) |
-| Raspberry Pi (and other Arm) Linux | [hpsdrconnector_linux_arm](/jancona/hpsdrconnector/releases/latest/download/hpsdrconnector_linux_arm) |
-| MacOS amd64 | [hpsdrconnector_macos_amd64](/jancona/hpsdrconnector/releases/latest/download/hpsdrconnector_macos_amd64) |
+| Windows | [hpsdrconnector.exe](https://github.com/jancona/hpsdrconnector/releases/latest/download/hpsdrconnector.exe)
+| Desktop Linux | [hpsdrconnector_linux_amd64](https://github.com/jancona/hpsdrconnector/releases/latest/download/hpsdrconnector_linux_amd64) |
+| Raspberry Pi (and other Arm) Linux | [hpsdrconnector_linux_arm](https://github.com/jancona/hpsdrconnector/releases/latest/download/hpsdrconnector_linux_arm) |
+| MacOS amd64 | [hpsdrconnector_macos_amd64](https://github.com/jancona/hpsdrconnector/releases/latest/download/hpsdrconnector_macos_amd64) |
 
 ## Limitations
 * Only the original HPSDR Protocol 1 is supported.
