@@ -1,4 +1,5 @@
 name: Go
+# Testing
 
 on:
   push:
@@ -53,7 +54,7 @@ jobs:
         # Same as above except indicating a minor change
         minor_pattern: "(MINOR)"
         # A string to determine the format of the version output
-        format: "${major}.${minor}.${patch}-prerelease.${increment}"
+        format: "${major}.${minor}.${patch}"
         # Optional path to check for changes. If any changes are detected in the path the
         # 'changed' output will true. Enter multiple paths separated by spaces.
         # change_path: "src/my-service"
