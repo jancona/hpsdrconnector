@@ -40,11 +40,29 @@ jobs:
     - name: Build linux/arm
       run: GOOS=linux GOARCH=arm go build -v -o hpsdrconnector_linux_arm
 
+    # - id: new_version
+    #   uses: zwaldowski/semver-release-action@v1
+    #   with:
+    #     bump: minor
+    #     github_token: ${{ secrets.GITHUB_TOKEN }}
+
     - id: new_version
-      uses: zwaldowski/semver-release-action@v1
+      uses: paulhatch/semantic-version@v3
       with:
-        bump: minor
-        github_token: ${{ secrets.GITHUB_TOKEN }}
+        branch: "master"
+        tag_prefix: "v"
+        # A string which, if present in a git commit, indicates that a change represents a
+        # major (breaking) change
+        major_pattern: "(MAJOR)"
+        # Same as above except indicating a minor change
+        minor_pattern: "(MINOR)"
+        # A string to determine the format of the version output
+        format: "${major}.${minor}.${patch}-prerelease.${increment}"
+        # Optional path to check for changes. If any changes are detected in the path the
+        # 'changed' output will true. Enter multiple paths separated by spaces.
+        # change_path: "src/my-service"
+        # Named version, will be used as suffix for name version tag
+        # namespace: project-b
 
     - name: Create Release
       id: create_release
