@@ -160,6 +160,12 @@ func main() {
 						*frequency = uint(f)
 						r.SetTXFrequency(*frequency)
 						r.SetRX1Frequency(*frequency)
+						if *frequency >= 3000000 {
+							// Turn on high pass filter
+							r.SetOCOut(0b1000000)
+						} else {
+							r.SetOCOut(0)
+						}
 					case "rf_gain":
 						val := strings.ToLower(tok[1])
 						if val == "auto" || val == "none" {
