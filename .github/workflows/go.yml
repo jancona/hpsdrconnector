@@ -33,9 +33,6 @@ jobs:
     - name: Build linux/amd64
       run: GOOS=linux GOARCH=amd64 go build -v -o hpsdrconnector_linux_amd64
 
-    - name: Build windows
-      run: GOOS=windows GOARCH=amd64 go build -v -o hpsdrconnector.exe
-
     - name: Build MacOS
       run: GOOS=darwin GOARCH=amd64 go build -v -o hpsdrconnector_macos_amd64
 
@@ -71,8 +68,7 @@ jobs:
         draft: false
         prerelease: false
 
-    - name: Upload Release Asset
-      # id: upload-release-asset
+    - name: Upload Linux/amd64 Release Asset
       uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -81,18 +77,7 @@ jobs:
         asset_path: ./hpsdrconnector_linux_amd64
         asset_name: hpsdrconnector_linux_amd64
         asset_content_type: application/octet-stream
-    - name: Upload Release Asset
-      # id: upload-release-asset
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
-        asset_path: ./hpsdrconnector.exe
-        asset_name: hpsdrconnector.exe
-        asset_content_type: application/octet-stream
-    - name: Upload Release Asset
-      # id: upload-release-asset
+    - name: Upload MacOS/amd64 Release Asset
       uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -101,8 +86,7 @@ jobs:
         asset_path: ./hpsdrconnector_macos_amd64
         asset_name: hpsdrconnector_macos_amd64
         asset_content_type: application/octet-stream
-    - name: Upload Release Asset
-      # id: upload-release-asset
+    - name: Upload Linux/arm Release Asset
       uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

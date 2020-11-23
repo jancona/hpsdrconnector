@@ -6,20 +6,19 @@ An OpenWebRX connector for HPSDR radios
 There are now released binaries, so you no longer have to install Go to build from source. (If you wish to build from source see [Building](https://github.com/jancona/hpsdrconnector#building) below.)
 
 1. Download the proper binary for your OS and architecture from the list below.
-2. Place the it in your `PATH`.
-3. For the Linux and MacOS binaries, you will need to rename the binary to `hpsdrconnector` and make it executable (`chmod +x hpsdrconnector`).
+2. Rename the binary to `hpsdrconnector` and make it executable (`chmod +x hpsdrconnector`).
+3. Place the it in a directory in your `PATH` (e.g. `/usr/local/bin`).
 4. Test your installation by running `hpsdrconnector -h`. You should see a usage message.
 
 | Operating System | Executable Name |
 | ---------------- | --------------- |
-| Windows | [hpsdrconnector.exe](https://github.com/jancona/hpsdrconnector/releases/latest/download/hpsdrconnector.exe)
 | Desktop Linux | [hpsdrconnector_linux_amd64](https://github.com/jancona/hpsdrconnector/releases/latest/download/hpsdrconnector_linux_amd64) |
 | Raspberry Pi (and other Arm) Linux | [hpsdrconnector_linux_arm](https://github.com/jancona/hpsdrconnector/releases/latest/download/hpsdrconnector_linux_arm) |
 | MacOS amd64 | [hpsdrconnector_macos_amd64](https://github.com/jancona/hpsdrconnector/releases/latest/download/hpsdrconnector_macos_amd64) |
 
 ## Limitations
 * Only the original HPSDR Protocol 1 is supported.
-* So far, this has only been tested with the [Hermes-Lite 2](https://github.com/softerhardware/Hermes-Lite2/wiki). Feel free to create [issues](https://github.com/jancona/hpsdrconnector/issues) with reports of success or failure using other hardware.
+* So far, this has been tested with the [Hermes-Lite 2](https://github.com/softerhardware/Hermes-Lite2/wiki) and the [Red Pitaya](https://www.redpitaya.com/Catalog/p25/stemlab-125-14-sdr-kit?cat=a102). Feel free to create [issues](https://github.com/jancona/hpsdrconnector/issues) with reports of success or failure using other hardware.
 * Currently only one receiver is supported.
 
 ## Usage
