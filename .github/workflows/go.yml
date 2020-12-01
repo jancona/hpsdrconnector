@@ -53,10 +53,11 @@ jobs:
         # Same as above except indicating a minor change
         minor_pattern: "(MINOR)"
         # A string to determine the format of the version output
-        format: "v${major}.${minor}.${patch}"
+        format: "${major}.${minor}.${patch}"
 
     - name: Setup package directory
       run: |
+        echo "VERSION=v${{ steps.new_version.outputs.version }}" >> $GITHUB_ENV
         mkdir -p .debpkg/usr/bin
         cp hpsdrconnector_linux_amd64 .debpkg/usr/bin/hpsdrconnector
         chmod +x .debpkg/usr/bin/hpsdrconnector
@@ -107,8 +108,8 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: ${{ steps.new_version.outputs.version }}
-        release_name: Release ${{ steps.new_version.outputs.version }}
+        tag_name: ${VERSION}
+        release_name: Release ${VERSION}
         draft: false
         prerelease: false
 
