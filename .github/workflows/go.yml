@@ -57,7 +57,6 @@ jobs:
 
     - name: Setup package directory
       run: |
-        echo "VERSION=v${{ steps.new_version.outputs.version }}" >> $GITHUB_ENV
         mkdir -p .debpkg/usr/bin
         cp hpsdrconnector_linux_amd64 .debpkg/usr/bin/hpsdrconnector
         chmod +x .debpkg/usr/bin/hpsdrconnector
@@ -108,8 +107,8 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: ${VERSION}
-        release_name: Release ${VERSION}
+        tag_name: v${{ steps.new_version.outputs.version }}
+        release_name: Release v${{ steps.new_version.outputs.version }}
         draft: false
         prerelease: false
 
