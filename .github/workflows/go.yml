@@ -39,7 +39,10 @@ jobs:
     - name: Build linux/arm
       run: GOOS=linux GOARCH=arm go build -v -o hpsdrconnector_linux_arm
 
-    - id: new_version
+    - name: Build linux/arm64
+      run: GOOS=linux GOARCH=arm64 go build -v -o hpsdrconnector_linux_arm64
+
+    - name: new_version
       uses: paulhatch/semantic-version@v3
       with:
         branch: "master"
@@ -51,11 +54,52 @@ jobs:
         minor_pattern: "(MINOR)"
         # A string to determine the format of the version output
         format: "v${major}.${minor}.${patch}"
-        # Optional path to check for changes. If any changes are detected in the path the
-        # 'changed' output will true. Enter multiple paths separated by spaces.
-        # change_path: "src/my-service"
-        # Named version, will be used as suffix for name version tag
-        # namespace: project-b
+
+    - name: Setup package directory
+      run: |
+        mkdir -p .debpkg/usr/bin
+        cp hpsdrconnector_linux_amd64 .debpkg/usr/bin/hpsdrconnector
+        chmod +x .debpkg/usr/bin/hpsdrconnector
+
+    - name: Build amd64 deb
+      uses: jiro4989/build-deb-action@v2
+      with:
+        package: hpsdrconnector
+        package_root: .debpkg
+        maintainer: Jim Ancona <jim@anconafamily.com>
+        version:  ${{ steps.new_version.outputs.version }}
+        arch: 'amd64'
+        desc: 'OpenWebRX connector for HPSDR radios'
+
+    - name: Update package directory for arm
+      run: |
+        cp hpsdrconnector_linux_arm .debpkg/usr/bin/hpsdrconnector
+        chmod +x .debpkg/usr/bin/hpsdrconnector
+
+    - name: Build armhf deb
+      uses: jiro4989/build-deb-action@v2
+      with:
+        package: hpsdrconnector
+        package_root: .debpkg
+        maintainer: Jim Ancona <jim@anconafamily.com>
+        version:  ${{ steps.new_version.outputs.version }}
+        arch: 'armhf'
+        desc: 'OpenWebRX connector for HPSDR radios'
+
+    - name: Update package directory for arm64
+      run: |
+        cp hpsdrconnector_linux_arm64 .debpkg/usr/bin/hpsdrconnector
+        chmod +x .debpkg/usr/bin/hpsdrconnector
+
+    - name: Build arm64 deb
+      uses: jiro4989/build-deb-action@v2
+      with:
+        package: hpsdrconnector
+        package_root: .debpkg
+        maintainer: Jim Ancona <jim@anconafamily.com>
+        version:  ${{ steps.new_version.outputs.version }}
+        arch: 'arm64'
+        desc: 'OpenWebRX connector for HPSDR radios'
 
     - name: Create Release
       id: create_release
@@ -73,7 +117,7 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
         asset_path: ./hpsdrconnector_linux_amd64
         asset_name: hpsdrconnector_linux_amd64
         asset_content_type: application/octet-stream
@@ -82,7 +126,7 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
         asset_path: ./hpsdrconnector_macos_amd64
         asset_name: hpsdrconnector_macos_amd64
         asset_content_type: application/octet-stream
@@ -91,7 +135,43 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
         asset_path: ./hpsdrconnector_linux_arm
         asset_name: hpsdrconnector_linux_arm
+        asset_content_type: application/octet-stream
+    - name: Upload Linux/arm64 Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./hpsdrconnector_linux_arm64
+        asset_name: hpsdrconnector_linux_arm64
+        asset_content_type: application/octet-stream
+    - name: Upload amd64 deb
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./hpsdrconnector_${{ steps.new_version.outputs.version }}_amd64.deb
+        asset_name: hpsdrconnector_${{ steps.new_version.outputs.version }}_amd64.deb
+        asset_content_type: application/octet-stream
+    - name: Upload armhf deb
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./hpsdrconnector_${{ steps.new_version.outputs.version }}_armhf.deb
+        asset_name: hpsdrconnector_${{ steps.new_version.outputs.version }}_armhf.deb
+        asset_content_type: application/octet-stream
+    - name: Upload arm64 deb
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./hpsdrconnector_${{ steps.new_version.outputs.version }}_arm64.deb
+        asset_name: hpsdrconnector_${{ steps.new_version.outputs.version }}_arm64.deb
         asset_content_type: application/octet-stream
