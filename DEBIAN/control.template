@@ -1,0 +1,7 @@
+Source: hpsdrconnector
+Maintainer: Jim Ancona <jim AT anconafamily.com>
+Homepage: https://github.com/openwebrx/hpsdrconnector
+Package: hpsdrconnector
+Description: OpenWebRX connector for HPSDR radios
+Version: ${VERSION}
+Architecture: ${ARCH}

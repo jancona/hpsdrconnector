@@ -5,6 +5,9 @@ hpsdrconnector
 *.dll
 *.so
 *.dylib
+*.deb
+
+DEBIAN/control
 
 # Test binary, built with `go test -c`
 *.test
