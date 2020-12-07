@@ -25,6 +25,7 @@ import (
 	"math"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strconv"
 	"strings"
@@ -44,10 +45,11 @@ var (
 	frequency   *uint   = flag.Uint("frequency", 7100000, "Tune to specified frequency in Hz")
 	sampleRate  *uint   = flag.Uint("samplerate", 96000, "Use the specified samplerate: one of 48000, 96000, 192000, 384000")
 	lnaGain     *uint   = flag.Uint("gain", 20, "LNA gain between 0 (-12dB) and 60 (48dB)")
-	controlPort *uint   = flag.Uint("control", 0, "control socket port (default disabled)")
+	controlPort *uint   = flag.Uint("control", 4591, "control socket port (default 4591)")
 	radioIP     *string = flag.String("radio", "", "IP address of radio (default use first radio discovered)")
 	isDebug     *bool   = flag.Bool("debug", false, "Emit debug log messages on stdout")
-	isServer    *bool   = flag.Bool("server", false, "Run as the server process for multiple receivers")
+	isServer    *bool   = flag.Bool("server", false, "Run as the server process")
+	serverPort  *uint   = flag.Uint("serverPort", 7300, "Server port for this radio")
 )
 
 func init() {
@@ -55,7 +57,7 @@ func init() {
 	flag.UintVar(frequency, "f", 7100000, "Tune to specified frequency in Hz")
 	flag.UintVar(sampleRate, "s", 96000, "Use the specified samplerate: one of 48000, 96000, 192000, 384000")
 	flag.UintVar(lnaGain, "g", 20, "LNA gain between 0 (-12dB) and 60 (48dB)")
-	flag.UintVar(controlPort, "c", 0, "control socket port (default disabled)")
+	flag.UintVar(controlPort, "c", 4591, "control socket port (default 4591)")
 	flag.StringVar(radioIP, "r", "", "IP address of radio (default use first radio discovered)")
 	flag.BoolVar(isDebug, "d", false, "Emit debug log messages on stdout")
 }
@@ -74,30 +76,100 @@ func main() {
 	}
 	log.SetOutput(filter)
 	log.Print("[DEBUG] Debug is on")
-	/*
-		struct args {
-			be_a_server     bool
-			iq_port         int
-			control_port    int
-			frequency       int
-			// ...
+
+	serverConn, err := net.Dial("tcp", fmt.Sprintf("localhost:%d", *serverPort))
+	if *isServer {
+		if err != nil {
+			// Run as a server
+			runAsServer()
+			os.Exit(0)
+		} else {
+			log.Fatalf("Attempting to start a server on port %d, but one is already running", *serverPort)
 		}
-		args = parse_arguments()
-		server_control_port = check_if_server_exists()
-		if args.be_a_server && server_control_port != NULL {
-			// there's already a server
-			exit()
+	} else {
+		runAsClient(serverConn, err)
+	}
+}
+
+func runAsClient(serverConn net.Conn, err error) {
+	if err != nil {
+		log.Printf("[DEBUG] No server running, starting one on port %d", *serverPort)
+		// No server running, so start one
+		args := []string{
+			"--server",
+			"--serverPort", strconv.FormatUint(uint64(*serverPort), 10),
+			"--port", strconv.FormatUint(uint64(*iqPort), 10),
+			"--frequency", strconv.FormatUint(uint64(*frequency), 10),
+			"--samplerate", strconv.FormatUint(uint64(*sampleRate), 10),
+			"--gain", strconv.FormatUint(uint64(*lnaGain), 10),
+			"--control", strconv.FormatUint(uint64(*controlPort), 10),
 		}
-		if args.be_a_server {
-			run_as_a_server() // This function terminates when the last receiver is closed
-			exit()
+		if *radioIP != "" {
+			args = append(args, "--radio", *radioIP)
 		}
-		// we're not a server and a server exists
-		control_conn = connect(server_control_port)
-		control_conn.write("add_receiver:"+args.control_port+":"+args.iq_port+":"+args.frequency)
-		// We're done--everything else is done by the server
-		// either exit or wait around to be killed (whichever makes OpenWebRX happy)
-	*/
+		if *isDebug {
+			args = append(args, "--debug")
+		}
+		log.Printf("[DEBUG] Server args: %v", args)
+		cmd := exec.Command("hpsdrconnector", args...)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		err := cmd.Start()
+		if err != nil {
+			log.Fatalf("Unable to launch hpsdrconnector server: %v", err)
+		}
+		for i := 0; i < 5; i++ {
+			serverConn, err = net.Dial("tcp", fmt.Sprintf("localhost:%d", *serverPort))
+			if err != nil {
+				log.Printf("Failed to connect to hpsdrconnector server: %v", err)
+			}
+			if serverConn != nil {
+				break
+			}
+			time.Sleep(2 * time.Second)
+		}
+		if err != nil {
+			log.Fatalf("Unable to connect to hpsdrconnector server: %v", err)
+		}
+	} else {
+		// Send start_receiver command to server
+		cmd := fmt.Sprintf("new_receiver:%d:%d:%d", *iqPort, *controlPort, *frequency)
+		_, err = serverConn.Write([]byte(cmd))
+		if err != nil {
+			log.Fatalf("Error sending command '%s' to server: %v", cmd, err)
+		}
+	}
+	// Run until we're terminated then tell server to close receiver
+	// wait for a close signal then clean up
+	signalChan := make(chan os.Signal, 1)
+	cleanupDone := make(chan struct{})
+	signal.Notify(signalChan, os.Interrupt)
+	go func() {
+		<-signalChan
+		log.Print("Received an interrupt, stopping...")
+		// Send close_receiver command to server
+		cmd := fmt.Sprintf("close_receiver:%d", *controlPort)
+		_, err = serverConn.Write([]byte(cmd))
+		if err != nil {
+			log.Fatalf("Error sending command '%s' to server: %v", cmd, err)
+		}
+		close(cleanupDone)
+	}()
+	<-cleanupDone
+}
+
+// Server represents the radio server
+type Server struct {
+	radio         hpsdr.Radio
+	receiverMutex sync.Mutex
+	receivers     map[uint]hpsdr.Receiver
+}
+
+func runAsServer() {
+	log.Printf("[DEBUG] Server starting on port %d", *serverPort)
+	server := Server{
+		receivers: map[uint]hpsdr.Receiver{},
+	}
 
 	switch *sampleRate {
 	case 48000:
@@ -131,36 +203,94 @@ func main() {
 		}
 		addr = devices[0].Network.Address
 	}
-	r := protocol1.NewRadio(addr)
-	r.SetSampleRate(*sampleRate)
-	r.SetTXFrequency(*frequency)
-	r.SetLNAGain(*lnaGain)
-	addReceiver(r, *iqPort, *controlPort, *frequency)
+	server.radio = protocol1.NewRadio(addr)
+	server.radio.SetSampleRate(*sampleRate)
+	server.radio.SetTXFrequency(*frequency)
+	server.radio.SetLNAGain(*lnaGain)
+
+	done := make(chan struct{})
+	log.Printf("[INFO] Listening on server port %d", *serverPort)
+	config := newReuseAddrListenConfig()
+	serverListener, err := config.Listen(context.Background(), "tcp", fmt.Sprintf("127.0.0.1:%d", *serverPort))
+	if err != nil {
+		log.Fatalf("Error listening on server port %d: %v", *serverPort, err)
+	}
+	go func() {
+		for receiverCount := 1; receiverCount > 0; {
+			log.Printf("[DEBUG] Calling Accept on server port %d", *serverPort)
+			serverConn, err := serverListener.Accept()
+			if err != nil {
+				log.Fatalf("Error accepting connection on server port %d: %v", *serverPort, err)
+			}
+			log.Printf("[DEBUG] Opened connection on server port %d", *serverPort)
+			buf := make([]byte, 128)
+			for run := true; run; {
+				cnt, err := serverConn.Read(buf)
+				if err != nil {
+					log.Printf("[DEBUG] Error reading server socket: %v", err)
+					run = false
+					break
+				}
+				if cnt <= 0 {
+					run = false
+					break
+				}
+				cmd := strings.Trim(string(buf[:cnt]), "\x00\r\n ")
+				log.Printf("[DEBUG] Received server command '%s'", cmd)
+				tok := strings.Split(cmd, ":")
+				log.Printf("[DEBUG] len(tok)=%d", len(tok))
+				switch tok[0] {
+				case "new_receiver":
+					if len(tok) != 4 {
+						log.Printf("[DEBUG] Ignoring bad new_receiver command: %s", cmd)
+					}
+					iqPort, err := strconv.ParseUint(tok[1], 10, 64)
+					if err != nil {
+						log.Printf("[DEBUG] Ignoring bad IQ port value in server command '%s': %v", cmd, err)
+					}
+					controlPort, err := strconv.ParseUint(tok[2], 10, 64)
+					if err != nil {
+						log.Printf("[DEBUG] Ignoring bad control port value in server command '%s': %v", cmd, err)
+					}
+					frequency, err := strconv.ParseUint(tok[3], 10, 64)
+					if err != nil {
+						log.Printf("[DEBUG] Ignoring bad frequency value in server command '%s': %v", cmd, err)
+					}
+					server.addReceiver(uint(iqPort), uint(controlPort), uint(frequency))
+				case "close_receiver":
+					if len(tok) != 2 {
+						log.Printf("[DEBUG] Ignoring bad new_receiver command: %s", cmd)
+					}
+					controlPort, err := strconv.ParseUint(tok[1], 10, 64)
+					if err != nil {
+						log.Printf("[DEBUG] Ignoring bad control port value in server command '%s': %v", cmd, err)
+					}
+					receiverCount = server.closeReceiver(uint(controlPort))
+				default:
+					log.Printf("[DEBUG] Ignoring unsupported server command: %s", cmd)
+				}
+			}
+		}
+		// receiverCount is zero, so we're done
+		close(done)
+	}()
+	server.addReceiver(*iqPort, *controlPort, *frequency)
 
 	log.Printf("[INFO] Starting radio on %s", addr.String())
-	err = r.Start()
+	err = server.radio.Start()
 	if err != nil {
-		log.Fatalf("Error starting radio %v: %v", r, err)
+		log.Fatalf("Error starting radio %v: %v", server.radio, err)
 	}
-	go sendTransmitSamples(r)
+	go server.sendTransmitSamples()
+	<-done
+	server.radio.Close()
+}
 
-	// wait for a close signal then clean up
-	signalChan := make(chan os.Signal, 1)
-	cleanupDone := make(chan struct{})
-	signal.Notify(signalChan, os.Interrupt)
-	go func() {
-		<-signalChan
-		log.Print("Received an interrupt, stopping...")
-		r.Close()
-		// if controlConn != nil {
-		// 	controlConn.Close()
-		// }
-		// if iqConn != nil {
-		// 	iqConn.Close()
-		// }
-		close(cleanupDone)
-	}()
-	<-cleanupDone
+func (s *Server) closeReceiver(controlPort uint) int {
+	s.receiverMutex.Lock()
+	defer s.receiverMutex.Unlock()
+	delete(s.receivers, controlPort)
+	return len(s.receivers)
 }
 
 func newReuseAddrListenConfig() net.ListenConfig {
@@ -173,109 +303,112 @@ func newReuseAddrListenConfig() net.ListenConfig {
 	}
 }
 
-func addReceiver(r hpsdr.Radio, iqPort uint, controlPort uint, frequency uint) {
+func (s *Server) addReceiver(iqPort uint, controlPort uint, frequency uint) {
 	distributor := NewDistributor()
-	rec := r.AddReceiver(distributor.Distribute)
+
+	s.receiverMutex.Lock()
+	rec := s.radio.AddReceiver(distributor.Distribute)
+	s.receivers[controlPort] = rec
+	defer s.receiverMutex.Unlock()
+
 	rec.SetFrequency(frequency)
 	var controlConn, iqConn net.Conn
 
-	if controlPort > 0 {
-		log.Printf("[INFO] Listening on control port %d", controlPort)
-		config := newReuseAddrListenConfig()
-		controlListener, err := config.Listen(context.Background(), "tcp", fmt.Sprintf("127.0.0.1:%d", controlPort))
-		if err != nil {
-			log.Fatalf("Error listening on control port %d: %v", controlPort, err)
-		}
-		go func() {
-			for {
-				log.Printf("[DEBUG] Calling Accept on control port %d", controlPort)
-				controlConn, err = controlListener.Accept()
+	log.Printf("[INFO] Listening on control port %d", controlPort)
+	config := newReuseAddrListenConfig()
+	controlListener, err := config.Listen(context.Background(), "tcp", fmt.Sprintf("127.0.0.1:%d", controlPort))
+	if err != nil {
+		log.Fatalf("Error listening on control port %d: %v", controlPort, err)
+	}
+	go func() {
+		for {
+			log.Printf("[DEBUG] Calling Accept on control port %d", controlPort)
+			controlConn, err = controlListener.Accept()
+			if err != nil {
+				// TODO: How should we handle this?
+				log.Fatalf("Error accepting connection on control port %d: %v", controlPort, err)
+			}
+			log.Printf("[DEBUG] Opened connection on control port %d", controlPort)
+			buf := make([]byte, 128)
+			for run := true; run; {
+				cnt, err := controlConn.Read(buf)
 				if err != nil {
-					// TODO: How should we handle this?
-					log.Fatalf("Error accepting connection on control port %d: %v", controlPort, err)
+					log.Printf("[DEBUG] Error reading control socket: %v", err)
+					run = false
+					break
 				}
-				log.Printf("[DEBUG] Opened connection on control port %d", controlPort)
-				buf := make([]byte, 128)
-				for run := true; run; {
-					cnt, err := controlConn.Read(buf)
+				if cnt <= 0 {
+					run = false
+					break
+				}
+				cmd := strings.Trim(string(buf[:cnt]), "\x00\r\n ")
+				log.Printf("[DEBUG] Received command '%s'", cmd)
+				tok := strings.Split(cmd, ":")
+				log.Printf("[DEBUG] len(tok)=%d", len(tok))
+				// if len(tok) != 2 {
+				// 	log.Printf("[DEBUG] Ignoring invalid command '%s'", cmd)
+				// 	continue
+				// }
+				switch tok[0] {
+				case "samp_rate":
+					sr, err := strconv.ParseUint(tok[1], 10, 64)
 					if err != nil {
-						log.Printf("[DEBUG] Error reading control socket: %v", err)
-						run = false
-						break
+						log.Printf("[DEBUG] Ignoring bad sample rate value in control command '%s': %v", cmd, err)
 					}
-					if cnt <= 0 {
-						run = false
-						break
+					*sampleRate = uint(sr)
+					s.radio.SetSampleRate(*sampleRate)
+				case "center_freq":
+					f, err := strconv.ParseUint(tok[1], 10, 64)
+					if err != nil {
+						log.Printf("[DEBUG] Ignoring bad center frequency value in control command '%s': %v", cmd, err)
 					}
-					cmd := strings.Trim(string(buf[:cnt]), "\x00\r\n ")
-					log.Printf("[DEBUG] Received command '%s'", cmd)
-					tok := strings.Split(cmd, ":")
-					log.Printf("[DEBUG] len(tok)=%d", len(tok))
-					// if len(tok) != 2 {
-					// 	log.Printf("[DEBUG] Ignoring invalid command '%s'", cmd)
-					// 	continue
-					// }
-					switch tok[0] {
-					case "samp_rate":
-						sr, err := strconv.ParseUint(tok[1], 10, 64)
-						if err != nil {
-							log.Printf("[DEBUG] Ignoring bad sample rate value in control command '%s': %v", cmd, err)
-						}
-						*sampleRate = uint(sr)
-						r.SetSampleRate(*sampleRate)
-					case "center_freq":
-						f, err := strconv.ParseUint(tok[1], 10, 64)
-						if err != nil {
-							log.Printf("[DEBUG] Ignoring bad center frequency value in control command '%s': %v", cmd, err)
-						}
-						frequency = uint(f)
-						r.SetTXFrequency(frequency)
-						rec.SetFrequency(frequency)
-						if frequency >= 3000000 {
-							// Turn on high pass filter
-							r.SetOCOut(0b1000000)
-						} else {
-							r.SetOCOut(0)
-						}
-					case "rf_gain":
-						val := strings.ToLower(tok[1])
-						if val == "auto" || val == "none" {
-							*lnaGain = 20
-						} else {
-							gain, err := strconv.ParseUint(val, 10, 64)
-							if err != nil {
-								log.Printf("[DEBUG] Ignoring bad gain value in control command '%s': %v", cmd, err)
-							}
-							*lnaGain = uint(gain)
-						}
-						r.SetLNAGain(*lnaGain)
-					case "new_receiver":
-						if len(tok) != 4 {
-							log.Printf("[DEBUG] Ignoring bad new_receiver command: %s", cmd)
-						}
-						iqPort, err := strconv.ParseUint(tok[1], 10, 64)
-						if err != nil {
-							log.Printf("[DEBUG] Ignoring bad IQ port value in control command '%s': %v", cmd, err)
-						}
-						controlPort, err := strconv.ParseUint(tok[2], 10, 64)
-						if err != nil {
-							log.Printf("[DEBUG] Ignoring bad control port value in control command '%s': %v", cmd, err)
-						}
-						frequency, err := strconv.ParseUint(tok[3], 10, 64)
-						if err != nil {
-							log.Printf("[DEBUG] Ignoring bad frequency value in control command '%s': %v", cmd, err)
-						}
-						addReceiver(r, uint(iqPort), uint(controlPort), uint(frequency))
-					default:
-						log.Printf("[DEBUG] Ignoring unsupported control command: %s", cmd)
+					frequency = uint(f)
+					s.radio.SetTXFrequency(frequency)
+					rec.SetFrequency(frequency)
+					if frequency >= 3000000 {
+						// Turn on high pass filter
+						s.radio.SetOCOut(0b1000000)
+					} else {
+						s.radio.SetOCOut(0)
 					}
+				case "rf_gain":
+					val := strings.ToLower(tok[1])
+					if val == "auto" || val == "none" {
+						*lnaGain = 20
+					} else {
+						gain, err := strconv.ParseUint(val, 10, 64)
+						if err != nil {
+							log.Printf("[DEBUG] Ignoring bad gain value in control command '%s': %v", cmd, err)
+						}
+						*lnaGain = uint(gain)
+					}
+					s.radio.SetLNAGain(*lnaGain)
+				// case "new_receiver":
+				// 	if len(tok) != 4 {
+				// 		log.Printf("[DEBUG] Ignoring bad new_receiver command: %s", cmd)
+				// 	}
+				// 	iqPort, err := strconv.ParseUint(tok[1], 10, 64)
+				// 	if err != nil {
+				// 		log.Printf("[DEBUG] Ignoring bad IQ port value in control command '%s': %v", cmd, err)
+				// 	}
+				// 	controlPort, err := strconv.ParseUint(tok[2], 10, 64)
+				// 	if err != nil {
+				// 		log.Printf("[DEBUG] Ignoring bad control port value in control command '%s': %v", cmd, err)
+				// 	}
+				// 	frequency, err := strconv.ParseUint(tok[3], 10, 64)
+				// 	if err != nil {
+				// 		log.Printf("[DEBUG] Ignoring bad frequency value in control command '%s': %v", cmd, err)
+				// 	}
+				// 	addReceiver(r, uint(iqPort), uint(controlPort), uint(frequency))
+				default:
+					log.Printf("[DEBUG] Ignoring unsupported control command: %s", cmd)
 				}
 			}
-		}()
-	}
+		}
+	}()
 
 	log.Printf("[INFO] Listening on IQ port %d", iqPort)
-	config := newReuseAddrListenConfig()
+	config = newReuseAddrListenConfig()
 	iqListener, err := config.Listen(context.Background(), "tcp", fmt.Sprintf("127.0.0.1:%d", iqPort))
 	if err != nil {
 		log.Fatalf("Error listening on port %d: %v", iqPort, err)
@@ -319,12 +452,12 @@ func addReceiver(r hpsdr.Radio, iqPort uint, controlPort uint, frequency uint) {
 	}()
 }
 
-func sendTransmitSamples(r hpsdr.Radio) {
-	ts := make([]hpsdr.TransmitSample, r.TransmitSamplesPerMessage())
+func (s *Server) sendTransmitSamples() {
+	ts := make([]hpsdr.TransmitSample, s.radio.TransmitSamplesPerMessage())
 	for {
 		// Send empty transmit samples to pass config changes and keep watchdog timer happy
-		r.SendSamples(ts)
-		time.Sleep(time.Second / time.Duration(48000/r.TransmitSamplesPerMessage()))
+		s.radio.SendSamples(ts)
+		time.Sleep(time.Second / time.Duration(48000/s.radio.TransmitSamplesPerMessage()))
 	}
 }
 
