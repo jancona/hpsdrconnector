@@ -7,4 +7,4 @@ require (
 	github.com/jancona/hpsdr v0.2.0
 )
 
-// replace github.com/jancona/hpsdr => /home/jim/hpsdr
+replace github.com/jancona/hpsdr => /home/jim/hpsdr
