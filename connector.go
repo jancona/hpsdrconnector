@@ -122,6 +122,7 @@ func runAsClient(serverConn net.Conn, err error) {
 		cmd := exec.Command("hpsdrconnector", args...)
 		cmd.SysProcAttr =
 			&syscall.SysProcAttr{
+				// Start server in its own process group so it survives the death of the client
 				Setpgid: true,
 				Pgid:    0,
 			}
@@ -143,6 +144,7 @@ func runAsClient(serverConn net.Conn, err error) {
 			log.Fatalf("client: Unable to connect to hpsdrconnector server, exiting: %v", err)
 		}
 	}
+	// We should now have a server to talk to
 	cmd := fmt.Sprintf("new_receiver:%d:%d:%d", *iqPortArg, *controlPortArg, *frequencyArg)
 	log.Printf("[DEBUG] client: Sending command '%s' to server", cmd)
 	_, err = serverConn.Write([]byte(cmd))

@@ -3,6 +3,10 @@ An OpenWebRX connector for HPSDR radios
 
 ## Installation
 
+Beginning with OpenWebRX 1.0, the HPSDR connector is now included with OpenWebRX, so a separate installation isn't needed. For a manually installed OpenWebRX, see the [Manual Installation](https://github.com/jancona/hpsdrconnector#manual-installation) section below.
+
+### Manual Installation
+
 There are now released binaries, so you no longer have to install Go to build from source. (If you wish to build from source see [Building](https://github.com/jancona/hpsdrconnector#building) below.)
 
 1. Download the proper binary for your OS and architecture from the list below.
@@ -19,59 +23,15 @@ There are now released binaries, so you no longer have to install Go to build fr
 ## Limitations
 * Only the original HPSDR Protocol 1 is supported.
 * So far, this has been tested with the [Hermes-Lite 2](https://github.com/softerhardware/Hermes-Lite2/wiki) and the [Red Pitaya](https://www.redpitaya.com/Catalog/p25/stemlab-125-14-sdr-kit?cat=a102). Feel free to create [issues](https://github.com/jancona/hpsdrconnector/issues) with reports of success or failure using other hardware.
-* Currently only one receiver is supported.
 
 ## Usage
-In order to use hpsdrconnector with OpenWebRX you will need a version of OpenWebRX that supports it. Right now, that means installing from source from this branch: https://github.com/jancona/openwebrx/tree/hpsdr_connector
-Once this code is merged into OpenWebRX and released, a normal installation will suffice.
+Navigate to the OpenWebRX settings area, "SDR devices and profiles". Click "Add new device" and select the device type "HPSDR devices (Hermes / Hermes Lite 2 / Red Pitaya)" from the dropdown. Give it a name and click the "Apply and save" button.
 
-You will also need to update `config_webrx.py`. Here is a sample SDR definition:
-```python
-sdrs = {
-    "HL2": {
-        "name": "Hermes-Lite 2",
-        "type": "hpsdr",
-        # if the following line is commented out, the connector will use the first radio it discovers
-        # "remote": "192.168.1.123", # IP Address of radio
-        "samp_rate": 192000,
-        "rf_gain": "20",
-        "profiles": {
-            "40m": {
-                "name": "40m",
-                "center_freq": 7150000,
-                "start_freq": 7150000,
-                "start_mod": "lsb",
-            },
-            "bcb": {
-                "name": "bcb",
-                "center_freq": 630000,
-                "start_freq": 580000,
-                "start_mod": "am",
-            },
-            "20m": {
-                "name": "20m",
-                "center_freq": 14120000,
-                "start_freq": 14100000,
-                "start_mod": "usb",
-            },
-            "30m": {
-                "name": "30m",
-                "center_freq": 10125000,
-                "start_freq": 10142000,
-                "start_mod": "usb",
-            },
-            "80m": {
-                "name": "80m",
-                "center_freq": 3850000,
-                "start_freq": 3870000,
-                "start_mod": "lsb",
-            },
-        },
-    },
-}
-```
+Then create one or more profiles for the device. Be sure to specify a sample rate supported by the HPSDR device, i.e. one of 48000, 96000, 192000 or 384000.
 
-Command line options:
+The version of the connector installed with OpenWebRX 1.0 and 1.1 only supports a single receiver. The current version supports multiple receivers, up to the number the hardware is capable of, e.g. 4 for a Hermes-Lite 2 with standard gateware. Until this version is packaged in an OpenWebRX release, you can experiment with it by using the OpenWebRX experimental repositories or by following the [manual installation](https://github.com/jancona/hpsdrconnector#manual-installation) process and then defining additional devices and profiles in the OWRX settings. The same sample rate is used for all receivers, so starting a profile with a different sample rate will affect other running devices. To avoid problems, it may be best to use a single sample rate for all profiles.
+
+### Command line options
 ```
   -c, --control uint
         control socket port (default disabled)
@@ -94,4 +54,3 @@ Command line options:
 2. Install Go, following the instructions for your OS at https://golang.org/doc/install. Be sure to add the Go bin directory to your PATH if the installer hasn't done that for you.
 3. In the `hpsdrconnector` directory, run `go install`
 4. Test your installation by running `hpsdrconnector -h`. You should see a usage message.
-
