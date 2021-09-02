@@ -40,8 +40,6 @@ import (
 	"github.com/jancona/hpsdr/protocol1"
 )
 
-const bufferSize = 2048
-
 var (
 	iqPortArg      *uint   = flag.Uint("port", 4590, "IQ listen port")
 	frequencyArg   *uint   = flag.Uint("frequency", 7100000, "Tune to specified frequency in Hz")
@@ -66,16 +64,25 @@ func init() {
 }
 
 func main() {
+	var err error
+
 	flag.Parse()
 	minLogLevel := "INFO"
 	if *isDebugArg {
 		minLogLevel = "DEBUG"
 	}
+	logWriter := os.Stdout
+	if *serverLogArg != "" {
+		logWriter, err = os.OpenFile(*serverLogArg, os.O_WRONLY|os.O_CREATE|os.O_SYNC, 0644)
+		if err != nil {
+			log.Fatalf("client: Error opening server output, exiting: %v", err)
+		}
+	}
 
 	filter := &logutils.LevelFilter{
 		Levels:   []logutils.LogLevel{"DEBUG", "INFO", "ERROR"},
 		MinLevel: logutils.LogLevel(minLogLevel),
-		Writer:   os.Stdout,
+		Writer:   logWriter,
 	}
 	log.SetOutput(filter)
 	log.Print("[DEBUG] Debug is on")
@@ -173,14 +180,6 @@ func runAsClient(serverConn net.Conn, err error) {
 
 func runAsServer() {
 	// defer profile.Start().Stop()
-	if *serverLogArg != "" {
-		logFile, err := os.OpenFile(*serverLogArg, os.O_WRONLY|os.O_CREATE|os.O_SYNC, 0644)
-		if err != nil {
-			log.Fatalf("client: Error opening server output, exiting: %v", err)
-		}
-		syscall.Dup3(int(logFile.Fd()), 1, 0)
-		syscall.Dup3(int(logFile.Fd()), 2, 0)
-	}
 	log.Printf("[DEBUG] Server starting on port %d", *serverPortArg)
 	server := &Server{
 		port:          *serverPortArg,
@@ -241,7 +240,7 @@ func discoverDevice(radioIP string) (*hpsdr.Device, error) {
 	if radioIP != "" {
 		device, err = hpsdr.DiscoverDevice(radioIP)
 		if err != nil {
-			return nil, fmt.Errorf("Error locating device at %s: %v", radioIP, err)
+			return nil, fmt.Errorf("error locating device at %s: %v", radioIP, err)
 		}
 	} else {
 		devices, err := hpsdr.DiscoverDevices()
@@ -382,7 +381,7 @@ func (s *Server) addReceiver(iqPort uint, controlPort uint, frequency uint) erro
 	l, err := s.retrySocketListen(controlPort)
 	if err != nil {
 		s.closeReceiver(controlPort)
-		return fmt.Errorf("Error listening on control port %d: %w", controlPort, err)
+		return fmt.Errorf("error listening on control port %d: %w", controlPort, err)
 	}
 	controlListener, ok := l.(*net.TCPListener)
 	if !ok {
@@ -394,7 +393,7 @@ func (s *Server) addReceiver(iqPort uint, controlPort uint, frequency uint) erro
 	l, err = s.retrySocketListen(iqPort)
 	if err != nil {
 		s.closeReceiver(controlPort)
-		return fmt.Errorf("Error listening on IQ port %d: %w", iqPort, err)
+		return fmt.Errorf("error listening on IQ port %d: %w", iqPort, err)
 	}
 
 	iqListener, ok := l.(*net.TCPListener)
@@ -566,7 +565,7 @@ func (s *Server) handleIQListener(iqListener *net.TCPListener, iqPort uint, dist
 							_, err := conn.Write(buf)
 							if err != nil {
 								log.Printf("[DEBUG] Error writing to IQ port %d: %v", iqPort, err)
-								run = false
+								return
 							}
 						}
 					}
@@ -609,7 +608,6 @@ func (s *Server) closeReceiver(controlPort uint) {
 		log.Printf("[INFO] Error closing receiver on control port %d", controlPort)
 	}
 	delete(s.receivers, controlPort)
-	return
 }
 
 func (s *Server) checkHPF() {
