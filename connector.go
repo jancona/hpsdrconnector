@@ -178,8 +178,8 @@ func runAsServer() {
 		if err != nil {
 			log.Fatalf("client: Error opening server output, exiting: %v", err)
 		}
-		syscall.Dup2(int(logFile.Fd()), 1)
-		syscall.Dup2(int(logFile.Fd()), 2)
+		syscall.Dup3(int(logFile.Fd()), 1, 0)
+		syscall.Dup3(int(logFile.Fd()), 2, 0)
 	}
 	log.Printf("[DEBUG] Server starting on port %d", *serverPortArg)
 	server := &Server{
