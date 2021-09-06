@@ -51,7 +51,7 @@ jobs:
         # major (breaking) change
         major_pattern: "(MAJOR)"
         # Same as above except indicating a minor change
-        minor_pattern: "(MINOR)"
+        minor_pattern: "(minor)"
         # A string to determine the format of the version output
         format: "${major}.${minor}.${patch}"
 
