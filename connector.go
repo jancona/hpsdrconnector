@@ -1,6 +1,6 @@
-// +build !windows
+//go:build !windows
 
-// Copyright 2020 James P. Ancona
+// Copyright 2020, 2021 James P. Ancona
 
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,7 +28,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -104,20 +103,12 @@ func main() {
 func runAsClient(serverConn net.Conn, err error) {
 	if err != nil {
 		log.Printf("[DEBUG] client: No server running, starting one on port %d", *serverPortArg)
-		stdout, err := filepath.EvalSymlinks(os.Stdout.Name())
-		if err != nil {
-			log.Fatalf("Error evaluating stdout: %v", err)
-		}
 		// No server running, so start one
 		args := []string{
 			"--server",
 			"--serverPort", strconv.FormatUint(uint64(*serverPortArg), 10),
-			// "--port", strconv.FormatUint(uint64(*iqPort), 10),
-			// "--control", strconv.FormatUint(uint64(*controlPort), 10),
-			// "--frequency", strconv.FormatUint(uint64(*frequency), 10),
 			"--samplerate", strconv.FormatUint(uint64(*sampleRateArg), 10),
 			"--gain", strconv.FormatUint(uint64(*lnaGainArg), 10),
-			"--serverLog", stdout,
 		}
 		if *radioIPArg != "" {
 			args = append(args, "--radio", *radioIPArg)
@@ -133,6 +124,8 @@ func runAsClient(serverConn net.Conn, err error) {
 				Setpgid: true,
 				Pgid:    0,
 			}
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
 		err = cmd.Start()
 		if err != nil {
 			log.Fatalf("client: Unable to launch hpsdrconnector server, exiting: %v", err)
