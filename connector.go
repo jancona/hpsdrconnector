@@ -204,7 +204,7 @@ func runAsServer() {
 	server.radio.SetLNAGain(*lnaGainArg)
 
 	done := make(chan struct{})
-	log.Printf("[INFO] Listening on server port %d", server.port)
+	log.Printf("[INFO] Listening on server port %d to radio on %v", server.port, device.Network.Address.String())
 	config := newReuseAddrListenConfig()
 	l, err := config.Listen(context.Background(), "tcp", fmt.Sprintf("127.0.0.1:%d", server.port))
 	if err != nil {
@@ -234,6 +234,9 @@ func discoverDevice(radioIP string) (*hpsdr.Device, error) {
 		device, err = hpsdr.DiscoverDevice(radioIP)
 		if err != nil {
 			return nil, fmt.Errorf("error locating device at %s: %v", radioIP, err)
+		}
+		if device == nil {
+			return nil, fmt.Errorf("no device found at %s", radioIP)
 		}
 	} else {
 		devices, err := hpsdr.DiscoverDevices()
