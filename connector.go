@@ -173,7 +173,7 @@ func runAsClient(serverConn net.Conn, err error) {
 
 func runAsServer() {
 	// defer profile.Start().Stop()
-	log.Printf("[DEBUG] Server starting on port %d", *serverPortArg)
+	log.Printf("[DEBUG] server(%d): Starting", *serverPortArg)
 	server := &Server{
 		port:          *serverPortArg,
 		receivers:     map[uint]hpsdr.Receiver{},
@@ -204,7 +204,7 @@ func runAsServer() {
 	server.radio.SetLNAGain(*lnaGainArg)
 
 	done := make(chan struct{})
-	log.Printf("[INFO] Listening on server port %d to radio on %v", server.port, device.Network.Address.String())
+	log.Printf("[INFO] server(%d): Listening to radio on %v", server.port, device.Network.Address.String())
 	config := newReuseAddrListenConfig()
 	l, err := config.Listen(context.Background(), "tcp", fmt.Sprintf("127.0.0.1:%d", server.port))
 	if err != nil {
@@ -212,19 +212,19 @@ func runAsServer() {
 	}
 	serverListener, ok := l.(*net.TCPListener)
 	if !ok {
-		log.Fatal("serverListener is not a TCPListener")
+		log.Fatalf("serverListener on port %d is not a TCPListener", server.port)
 	}
 	go server.handleServerListener(serverListener, done)
-	log.Printf("[INFO] Starting %s radio with up to %d receivers on %s", device.Name, device.SupportedReceivers, device.Network.Address.String())
+	log.Printf("[INFO] server(%d): Starting %s radio with up to %d receivers on %s", server.port, device.Name, device.SupportedReceivers, device.Network.Address.String())
 	err = server.radio.Start()
 	if err != nil {
 		log.Fatalf("Error starting radio %s: %v", device.Name, err)
 	}
 	go server.sendTransmitSamples()
 	<-done
-	log.Print("[INFO] Server exiting...")
+	log.Printf("[INFO] server(%d): Exiting...", server.port)
 	server.radio.Close()
-	log.Print("[INFO] Server done")
+	log.Printf("[INFO] server(%d): Done", server.port)
 }
 
 func discoverDevice(radioIP string) (*hpsdr.Device, error) {
@@ -262,21 +262,21 @@ type Server struct {
 }
 
 func (s *Server) handleServerListener(serverListener *net.TCPListener, done chan struct{}) {
-	log.Printf("[DEBUG] handleServerListener starting on port %d", s.port)
+	log.Printf("[DEBUG] server(%d): handleServerListener starting", s.port)
 	timeoutCount := 0
 	for {
 		err := serverListener.SetDeadline(time.Now().Add(10 * time.Second))
 		if err != nil {
-			log.Printf("[DEBUG] serverListener.SetDeadline error: %v", err)
+			log.Printf("[DEBUG] server(%d): serverListener.SetDeadline error: %v", s.port, err)
 		}
-		log.Printf("[DEBUG] Calling Accept on server port %d", s.port)
+		// log.Printf("[DEBUG] server(%d): Calling Accept", s.port)
 		serverConn, err := serverListener.Accept()
 		if errors.Is(err, os.ErrDeadlineExceeded) {
 			if s.receiverCount() == 0 {
 				timeoutCount++
 				if timeoutCount > 1 {
 					// we waited at least 10 seconds with no receivers added, so exit
-					log.Printf("[DEBUG] serverListener.Accept() timeout with no receivers")
+					log.Printf("[DEBUG] server(%d): serverListener.Accept() timeout with no receivers", s.port)
 					break
 				}
 			} else {
@@ -284,12 +284,12 @@ func (s *Server) handleServerListener(serverListener *net.TCPListener, done chan
 			}
 			continue
 		} else if err != nil {
-			log.Fatalf("Error accepting connection on server port %d: %v", s.port, err)
+			log.Fatalf("server(%d): Error accepting connection on server port: %v", s.port, err)
 		}
-		log.Printf("[DEBUG] Opened connection on server port %d", s.port)
+		log.Printf("[DEBUG] server(%d): Opened connection on server port", s.port)
 		go s.handleServerConn(serverConn)
 	}
-	log.Print("[DEBUG] All receivers closed for more than 10s, so exiting")
+	log.Printf("[DEBUG] server(%d): All receivers closed for more than 10s, so exiting", s.port)
 	close(done)
 }
 
@@ -299,72 +299,72 @@ func (s *Server) handleServerConn(c net.Conn) {
 	for run := true; run; {
 		cnt, err := c.Read(buf)
 		if err != nil {
-			log.Printf("[DEBUG] Error reading server socket: %v", err)
+			log.Printf("[DEBUG] server(%d): Error reading server socket: %v", s.port, err)
 			run = false
 			break
 		}
 		if cnt <= 0 {
-			log.Printf("[DEBUG] c.Read() count=%d, closing", cnt)
+			log.Printf("[DEBUG] server(%d): c.Read() count=%d, closing", s.port, cnt)
 			run = false
 			break
 		}
 		cmd := strings.Trim(string(buf[:cnt]), "\x00\r\n ")
-		log.Printf("[DEBUG] Received server command '%s'", cmd)
+		log.Printf("[DEBUG] server(%d): Received server command '%s'", s.port, cmd)
 		tok := strings.Split(cmd, ":")
 		switch tok[0] {
 		case "new_receiver":
 			if len(tok) != 4 {
-				log.Printf("[DEBUG] Ignoring bad new_receiver command: %s", cmd)
+				log.Printf("[DEBUG] server(%d): Ignoring bad new_receiver command: %s", s.port, cmd)
 				continue
 			}
 			iqPort, err := strconv.ParseUint(tok[1], 10, 64)
 			if err != nil {
-				log.Printf("[DEBUG] Ignoring bad IQ port value in server command '%s': %v", cmd, err)
+				log.Printf("[DEBUG] server(%d): Ignoring bad IQ port value in server command '%s': %v", s.port, cmd, err)
 				continue
 			}
 			controlPort, err := strconv.ParseUint(tok[2], 10, 64)
 			if err != nil {
-				log.Printf("[DEBUG] Ignoring bad control port value in server command '%s': %v", cmd, err)
+				log.Printf("[DEBUG] server(%d): Ignoring bad control port value in server command '%s': %v", s.port, cmd, err)
 				continue
 			}
 			frequency, err := strconv.ParseUint(tok[3], 10, 64)
 			if err != nil {
-				log.Printf("[DEBUG] Ignoring bad frequency value in server command '%s': %v", cmd, err)
+				log.Printf("[DEBUG] server(%d): Ignoring bad frequency value in server command '%s': %v", s.port, cmd, err)
 				continue
 			}
 			err = s.addReceiver(uint(iqPort), uint(controlPort), uint(frequency))
 			if err != nil {
-				log.Printf("[DEBUG] Unable to execute server command '%s': %v", cmd, err)
+				log.Printf("[DEBUG] server(%d): Unable to execute server command '%s': %v", s.port, cmd, err)
 				continue
 			}
 		case "close_receiver":
 			if len(tok) != 2 {
-				log.Printf("[DEBUG] Ignoring bad close_receiver command: %s", cmd)
+				log.Printf("[DEBUG] server(%d): Ignoring bad close_receiver command: %s", s.port, cmd)
 				continue
 			}
 			controlPort, err := strconv.ParseUint(tok[1], 10, 64)
 			if err != nil {
-				log.Printf("[DEBUG] Ignoring bad control port value in server command '%s': %v", cmd, err)
+				log.Printf("[DEBUG] server(%d): Ignoring bad control port value in server command '%s': %v", s.port, cmd, err)
 				continue
 			}
 			s.closeReceiver(uint(controlPort))
-			log.Printf("[INFO] Closed receiver listening on control port %d, %d receivers left", controlPort, s.receiverCount())
+			log.Printf("[INFO] server(%d): Closed receiver listening on control port %d, %d receivers left", s.port, controlPort, s.receiverCount())
 		default:
-			log.Printf("[DEBUG] Ignoring unsupported server command: %s", cmd)
+			log.Printf("[DEBUG] server(%d): Ignoring unsupported server command: %s", s.port, cmd)
 		}
 	}
 }
 
 func (s *Server) addReceiver(iqPort uint, controlPort uint, frequency uint) error {
-	log.Printf("[DEBUG] addReceiver(%d, %d, %d)", iqPort, controlPort, frequency)
-	distributor := NewDistributor()
+	log.Printf("[DEBUG] server(%d): addReceiver(%d, %d, %d)", s.port, iqPort, controlPort, frequency)
+	distributor := NewDistributor(s.port)
 
 	rec, err := s.radio.AddReceiver(distributor.Distribute)
 	if err != nil {
-		log.Printf("[DEBUG] radio.AddReceiver returned error: %v", err)
+		log.Printf("[DEBUG] server(%d): radio.AddReceiver returned error: %v", s.port, err)
 		return err
 	}
-	log.Printf("[DEBUG] Added receiver on control port %d, closed: %v", controlPort, rec.IsClosed())
+	log.Printf("[DEBUG] server(%d): Added receiver on control port %d, closed: %v", s.port, controlPort, rec.IsClosed())
 	stopReceiver := make(chan struct{})
 	s.receiverMutex.Lock()
 	s.receivers[controlPort] = rec
@@ -373,7 +373,7 @@ func (s *Server) addReceiver(iqPort uint, controlPort uint, frequency uint) erro
 
 	rec.SetFrequency(frequency)
 
-	log.Printf("[INFO] Added receiver listening on control port %d", controlPort)
+	log.Printf("[INFO] server(%d): Added receiver listening on control port %d", s.port, controlPort)
 	l, err := s.retrySocketListen(controlPort)
 	if err != nil {
 		s.closeReceiver(controlPort)
@@ -385,7 +385,7 @@ func (s *Server) addReceiver(iqPort uint, controlPort uint, frequency uint) erro
 	}
 	go s.handleControlListener(controlListener, controlPort, rec, stopReceiver)
 
-	log.Printf("[INFO] Listening on IQ port %d", iqPort)
+	log.Printf("[INFO] server(%d): Listening on IQ port %d", s.port, iqPort)
 	l, err = s.retrySocketListen(iqPort)
 	if err != nil {
 		s.closeReceiver(controlPort)
@@ -409,7 +409,7 @@ func (s *Server) retrySocketListen(port uint) (net.Listener, error) {
 			return controlListener, err
 		}
 		retry--
-		log.Printf("[DEBUG] Error listening on port %d, retrying: %v", port, err)
+		log.Printf("[DEBUG] server(%d): Error listening on port %d, retrying: %v", s.port, port, err)
 		time.Sleep(500 * time.Millisecond)
 	}
 }
@@ -422,7 +422,7 @@ func (s *Server) handleControlListener(controlListener *net.TCPListener, control
 	for globalRun := true; globalRun; {
 		select {
 		case <-stopReceiver:
-			log.Printf("[DEBUG] handleControlListener stopReceiver")
+			log.Printf("[DEBUG] server(%d): handleControlListener stopReceiver", s.port)
 			globalRun = false
 		default:
 			log.Printf("[DEBUG] Calling Accept on control port %d", controlPort)
@@ -431,11 +431,11 @@ func (s *Server) handleControlListener(controlListener *net.TCPListener, control
 			// 	continue
 			// } else
 			if err != nil {
-				log.Printf("Error accepting connection on control port %d: %v", controlPort, err)
+				log.Printf("[ERROR] server(%d): Error accepting connection on control port %d: %v", s.port, controlPort, err)
 				// What should happen here?
 				break
 			}
-			log.Printf("[DEBUG] Opened connection on control port %d", controlPort)
+			log.Printf("[DEBUG] server(%d): Opened connection on control port %d", s.port, controlPort)
 			go func(conn net.Conn) {
 				defer conn.Close()
 
@@ -453,7 +453,7 @@ func (s *Server) handleControlListener(controlListener *net.TCPListener, control
 						// 	continue
 						// } else
 						if err != nil {
-							log.Printf("[DEBUG] Error reading control socket: %v", err)
+							log.Printf("[DEBUG] server(%d): Error reading control socket: %v", s.port, err)
 							run = false
 							break
 						}
@@ -462,25 +462,25 @@ func (s *Server) handleControlListener(controlListener *net.TCPListener, control
 							break
 						}
 						cmd := strings.Trim(string(buf[:cnt]), "\x00\r\n ")
-						log.Printf("[DEBUG] Received command '%s'", cmd)
+						log.Printf("[DEBUG] server(%d): Received command '%s'", s.port, cmd)
 						tok := strings.Split(cmd, ":")
 						log.Printf("[DEBUG] len(tok)=%d", len(tok))
 						if len(tok) != 2 {
-							log.Printf("[DEBUG] Ignoring invalid command '%s'", cmd)
+							log.Printf("[DEBUG] server(%d): Ignoring invalid command '%s'", s.port, cmd)
 							continue
 						}
 						switch tok[0] {
 						case "samp_rate":
 							sr, err := strconv.ParseUint(tok[1], 10, 64)
 							if err != nil {
-								log.Printf("[DEBUG] Ignoring bad sample rate value in control command '%s': %v", cmd, err)
+								log.Printf("[DEBUG] server(%d): Ignoring bad sample rate value in control command '%s': %v", s.port, cmd, err)
 								continue
 							}
 							s.radio.SetSampleRate(uint(sr))
 						case "center_freq":
 							f, err := strconv.ParseUint(tok[1], 10, 64)
 							if err != nil {
-								log.Printf("[DEBUG] Ignoring bad center frequency value in control command '%s': %v", cmd, err)
+								log.Printf("[DEBUG] server(%d): Ignoring bad center frequency value in control command '%s': %v", s.port, cmd, err)
 								continue
 							}
 							rec.SetFrequency(uint(f))
@@ -493,56 +493,47 @@ func (s *Server) handleControlListener(controlListener *net.TCPListener, control
 							} else {
 								gain, err := strconv.ParseUint(val, 10, 64)
 								if err != nil {
-									log.Printf("[DEBUG] Ignoring bad gain value in control command '%s': %v", cmd, err)
+									log.Printf("[DEBUG] server(%d): Ignoring bad gain value in control command '%s': %v", s.port, cmd, err)
 								}
 								lnaGain = uint(gain)
 							}
 							s.radio.SetLNAGain(lnaGain)
 						default:
-							log.Printf("[DEBUG] Ignoring unsupported control command: %s", cmd)
+							log.Printf("[DEBUG] server(%d): Ignoring unsupported control command: %s", s.port, cmd)
 						}
 					}
 				}
 			}(controlConn)
 		}
 	}
-	// if controlConn != nil {
-	// 	controlConn.Close()
-	// }
-	// receiverCount := s.closeReceiver(controlPort)
-	// log.Printf("[INFO] Control goroutine for port %d exiting, %d receivers left", controlPort, receiverCount)
-	log.Printf("[INFO] Control goroutine for port %d exiting", controlPort)
+	log.Printf("[INFO] server(%d): Control goroutine for port %d exiting", s.port, controlPort)
 }
 
 func (s *Server) handleIQListener(iqListener *net.TCPListener, iqPort uint, distributor *Distributor, stopReceiver chan struct{}) {
-	// iqListener.SetDeadline(time.Now().Add(1 * time.Second))
 	var iqConn net.Conn
 	var err error
 	defer iqListener.Close()
 	for globalRun := true; globalRun; {
 		select {
 		case <-stopReceiver:
-			log.Printf("[DEBUG] handleIQListener stopReceiver")
+			log.Printf("[DEBUG] server(%d): handleIQListener stopReceiver", s.port)
 			globalRun = false
 		default:
-			log.Printf("[DEBUG] Calling Accept on IQ port %d", iqPort)
+			log.Printf("[DEBUG] server(%d): Calling Accept on IQ port %d", s.port, iqPort)
 			iqConn, err = iqListener.Accept()
-			// if errors.Is(err, os.ErrDeadlineExceeded) {
-			// 	continue
-			// } else
 			if err != nil {
-				log.Printf("Error accepting connection on port %d: %v", iqPort, err)
+				log.Printf("[ERROR] server(%d): Error accepting connection on port %d: %v", s.port, iqPort, err)
 				break
 			}
-			log.Printf("[DEBUG] Opened connection on IQ port %d", iqPort)
+			log.Printf("[DEBUG] server(%d): Opened connection on IQ port %d", s.port, iqPort)
 			go func(conn net.Conn) {
 				sampleChan := distributor.Listen()
 				defer func() {
 					distributor.Close(sampleChan)
-					log.Printf("[DEBUG] Closing IQ socket on port %d", iqPort)
+					log.Printf("[DEBUG] server(%d): Closing IQ socket on port %d", s.port, iqPort)
 					err = conn.Close()
 					if err != nil {
-						log.Printf("[DEBUG] Error closing IQ socket on port %d: %v", iqPort, err)
+						log.Printf("[DEBUG] server(%d): Error closing IQ socket on port %d: %v", s.port, iqPort, err)
 					}
 				}()
 				var samples []hpsdr.ReceiveSample
@@ -560,7 +551,7 @@ func (s *Server) handleIQListener(iqListener *net.TCPListener, iqPort uint, dist
 							}
 							_, err := conn.Write(buf)
 							if err != nil {
-								log.Printf("[DEBUG] Error writing to IQ port %d: %v", iqPort, err)
+								log.Printf("[DEBUG] server(%d): Error writing to IQ port %d: %v", s.port, iqPort, err)
 								return
 							}
 						}
@@ -569,7 +560,7 @@ func (s *Server) handleIQListener(iqListener *net.TCPListener, iqPort uint, dist
 			}(iqConn)
 		}
 	}
-	log.Printf("[DEBUG] IQ goroutine for port %d exiting", iqPort)
+	log.Printf("[DEBUG] server(%d): IQ goroutine for port %d exiting", s.port, iqPort)
 }
 
 func (s *Server) sendTransmitSamples() {
@@ -588,7 +579,7 @@ func (s *Server) receiverCount() int {
 }
 
 func (s *Server) closeReceiver(controlPort uint) {
-	log.Printf("[DEBUG] closeReceiver(%d)", controlPort)
+	log.Printf("[DEBUG] server(%d): closeReceiver(%d)", s.port, controlPort)
 	s.receiverMutex.Lock()
 	defer s.receiverMutex.Unlock()
 	// tell goroutines to exit
@@ -596,12 +587,12 @@ func (s *Server) closeReceiver(controlPort uint) {
 	delete(s.stopReceivers, controlPort)
 	rec := s.receivers[controlPort]
 	if rec == nil {
-		log.Printf("[INFO] Receiver on control port %d already closed", controlPort)
+		log.Printf("[INFO] server(%d): Receiver on control port %d already closed", s.port, controlPort)
 		return
 	}
 	err := rec.Close()
 	if err != nil {
-		log.Printf("[INFO] Error closing receiver on control port %d", controlPort)
+		log.Printf("[INFO] server(%d): Error closing receiver on control port %d", s.port, controlPort)
 	}
 	delete(s.receivers, controlPort)
 }
@@ -639,13 +630,15 @@ func newReuseAddrListenConfig() net.ListenConfig {
 // Distributor distributes received samples to one or more IQ goroutines
 type Distributor struct {
 	sync.RWMutex
-	listeners map[chan []hpsdr.ReceiveSample]bool
+	serverPort uint
+	listeners  map[chan []hpsdr.ReceiveSample]bool
 }
 
 // NewDistributor constructs a distributor
-func NewDistributor() *Distributor {
+func NewDistributor(p uint) *Distributor {
 	return &Distributor{
-		listeners: map[chan []hpsdr.ReceiveSample]bool{},
+		serverPort: p,
+		listeners:  map[chan []hpsdr.ReceiveSample]bool{},
 	}
 }
 
@@ -655,18 +648,18 @@ func (d *Distributor) Listen() chan []hpsdr.ReceiveSample {
 	d.Lock()
 	d.listeners[c] = true
 	d.Unlock()
-	log.Printf("[DEBUG] Added listener %v", c)
+	log.Printf("[DEBUG] server(%d): Added listener %v", d.serverPort, c)
 	return c
 }
 
 // Close closes a channel when a goroutine is done
 func (d *Distributor) Close(c chan []hpsdr.ReceiveSample) {
-	log.Printf("[DEBUG] Removing listener %v", c)
+	log.Printf("[DEBUG] server(%d): Removing listener %v", d.serverPort, c)
 	d.Lock()
 	delete(d.listeners, c)
 	d.Unlock()
 	close(c)
-	log.Printf("[DEBUG] Removed listener %v", c)
+	log.Printf("[DEBUG] server(%d): Removed listener %v", d.serverPort, c)
 }
 
 // Distribute receives samples from a radio and distributes them to listening goroutines
