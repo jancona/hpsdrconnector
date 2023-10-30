@@ -17,6 +17,7 @@
 package main // "github.com/jancona/hpsdrconnector"
 
 import (
+	"bufio"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -172,13 +173,7 @@ func runAsClient(serverConn net.Conn, err error) {
 }
 
 func runAsServer() {
-	// defer profile.Start().Stop()
 	log.Printf("[DEBUG] server(%d): Starting", *serverPortArg)
-	server := &Server{
-		port:          *serverPortArg,
-		receivers:     map[uint]hpsdr.Receiver{},
-		stopReceivers: map[uint]chan struct{}{},
-	}
 
 	switch *sampleRateArg {
 	case 48000:
@@ -196,6 +191,12 @@ func runAsServer() {
 	device, err := discoverDevice(*radioIPArg)
 	if err != nil {
 		log.Fatalf("Error discovering device, exiting: %v", err)
+	}
+
+	server := &Server{
+		port:          *serverPortArg,
+		receivers:     map[uint]hpsdr.Receiver{},
+		stopReceivers: map[uint]chan struct{}{},
 	}
 
 	server.radio = protocol1.NewRadio(device)
@@ -415,7 +416,6 @@ func (s *Server) retrySocketListen(port uint) (net.Listener, error) {
 }
 
 func (s *Server) handleControlListener(controlListener *net.TCPListener, controlPort uint, rec hpsdr.Receiver, stopReceiver chan struct{}) {
-	// controlListener.SetDeadline(time.Now().Add(1 * time.Second))
 	var controlConn net.Conn
 	var err error
 	defer controlListener.Close()
@@ -427,9 +427,6 @@ func (s *Server) handleControlListener(controlListener *net.TCPListener, control
 		default:
 			log.Printf("[DEBUG] Calling Accept on control port %d", controlPort)
 			controlConn, err = controlListener.Accept()
-			// if errors.Is(err, os.ErrDeadlineExceeded) {
-			// 	continue
-			// } else
 			if err != nil {
 				log.Printf("[ERROR] server(%d): Error accepting connection on control port %d: %v", s.port, controlPort, err)
 				// What should happen here?
@@ -441,17 +438,11 @@ func (s *Server) handleControlListener(controlListener *net.TCPListener, control
 
 				for run := true; run; {
 					buf := make([]byte, 128)
-					// conn.SetDeadline(time.Now().Add(time.Second))
 					select {
 					case <-stopReceiver:
 						run = false
-						// globalRun = false
 					default:
 						cnt, err := conn.Read(buf)
-						// if errors.Is(err, os.ErrDeadlineExceeded) {
-						// 	// log.Printf("[DEBUG] Deadline exceeded, retrying: %v", err)
-						// 	continue
-						// } else
 						if err != nil {
 							log.Printf("[DEBUG] server(%d): Error reading control socket: %v", s.port, err)
 							run = false
@@ -527,6 +518,7 @@ func (s *Server) handleIQListener(iqListener *net.TCPListener, iqPort uint, dist
 			}
 			log.Printf("[DEBUG] server(%d): Opened connection on IQ port %d", s.port, iqPort)
 			go func(conn net.Conn) {
+				bufConn := bufio.NewWriterSize(conn, 8192)
 				sampleChan := distributor.Listen()
 				defer func() {
 					distributor.Close(sampleChan)
@@ -549,7 +541,7 @@ func (s *Server) handleIQListener(iqListener *net.TCPListener, iqPort uint, dist
 								binary.LittleEndian.PutUint32(buf[i*8:], math.Float32bits(sample.QFloat()))
 								binary.LittleEndian.PutUint32(buf[i*8+4:], math.Float32bits(sample.IFloat()))
 							}
-							_, err := conn.Write(buf)
+							_, err := bufConn.Write(buf)
 							if err != nil {
 								log.Printf("[DEBUG] server(%d): Error writing to IQ port %d: %v", s.port, iqPort, err)
 								return
@@ -664,7 +656,7 @@ func (d *Distributor) Close(c chan []hpsdr.ReceiveSample) {
 
 // Distribute receives samples from a radio and distributes them to listening goroutines
 func (d *Distributor) Distribute(samples []hpsdr.ReceiveSample) {
-	// log.Printf("[DEBUG] Got samples %#v", samples)
+	// log.Printf("[DEBUG] Got %d samples", len(samples))
 	d.RLock()
 	for l := range d.listeners {
 		select {

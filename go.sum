@@ -1,10 +1,4 @@
 github.com/hashicorp/logutils v1.0.0 h1:dLEQVugN8vlakKOUE3ihGLTZJRB4j+M2cdTm/ORI65Y=
 github.com/hashicorp/logutils v1.0.0/go.mod h1:QIAnNjmIWmVIIkWDTG1z5v++HQmx9WQRO+LraFDTW64=
-github.com/jancona/hpsdr v0.3.0 h1:OM5IyLzD+QEx0W6lL7ZGXjMC50hGbbHhygSa06vIHGk=
-github.com/jancona/hpsdr v0.3.0/go.mod h1:8UyVPIlEjd0/U712FMrzK2Ulixhoi3yWuK8DF37jBqI=
-github.com/jancona/hpsdr v0.4.0 h1:uAJjDmXUuIoTDf1xoA51wsXNy6SfePF4oZ1/XuRsDD8=
-github.com/jancona/hpsdr v0.4.0/go.mod h1:8UyVPIlEjd0/U712FMrzK2Ulixhoi3yWuK8DF37jBqI=
-github.com/jancona/hpsdr v0.5.0 h1:owjizLd5qa03r3IYnEXEQLJP2e4kT8oHNQLu6kfHG8E=
-github.com/jancona/hpsdr v0.5.0/go.mod h1:8UyVPIlEjd0/U712FMrzK2Ulixhoi3yWuK8DF37jBqI=
 github.com/jancona/hpsdr v0.6.0 h1:0tI3dDv1jRzhV0MN1FFRsmCIHYcW7CjO194ACXfiPkI=
 github.com/jancona/hpsdr v0.6.0/go.mod h1:8UyVPIlEjd0/U712FMrzK2Ulixhoi3yWuK8DF37jBqI=
