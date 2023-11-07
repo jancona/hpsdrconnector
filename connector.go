@@ -131,7 +131,7 @@ func runAsClient(serverConn net.Conn, err error) {
 		if err != nil {
 			log.Fatalf("client: Unable to launch hpsdrconnector server, exiting: %v", err)
 		}
-		for i := 0; i < 5; i++ {
+		for i := 0; i < 10; i++ {
 			serverConn, err = net.Dial("tcp", fmt.Sprintf("localhost:%d", *serverPortArg))
 			if err != nil {
 				log.Printf("client: Failed to connect to hpsdrconnector server, exiting: %v", err)
