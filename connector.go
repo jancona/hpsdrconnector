@@ -374,6 +374,7 @@ func (s *Server) addReceiver(iqPort uint, controlPort uint, frequency uint) erro
 	s.receiverMutex.Unlock()
 
 	rec.SetFrequency(frequency)
+	s.checkHPF()
 
 	log.Printf("[INFO] server(%d): Added receiver listening on control port %d", s.port, controlPort)
 	l, err := s.retrySocketListen(controlPort)
@@ -617,6 +618,7 @@ func (s *Server) checkHPF() {
 				minFrequency = f
 			}
 		}
+		log.Printf("[DEBUG] server(%d): minFrequency: %d", s.port, minFrequency)
 		if minFrequency >= 3000000 {
 			// Turn on high pass filter
 			s.radio.SetOCOut(0b1000000)

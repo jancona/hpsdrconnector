@@ -4,5 +4,5 @@ go 1.13
 
 require (
 	github.com/hashicorp/logutils v1.0.0
-	github.com/jancona/hpsdr v0.8.0
+	github.com/jancona/hpsdr v0.9.0
 )
