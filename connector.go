@@ -373,9 +373,6 @@ func (s *Server) addReceiver(iqPort uint, controlPort uint, frequency uint) erro
 	s.stopReceivers[controlPort] = stopReceiver
 	s.receiverMutex.Unlock()
 
-	rec.SetFrequency(frequency)
-	s.checkHPF()
-
 	log.Printf("[INFO] server(%d): Added receiver listening on control port %d", s.port, controlPort)
 	l, err := s.retrySocketListen(controlPort)
 	if err != nil {
@@ -400,6 +397,9 @@ func (s *Server) addReceiver(iqPort uint, controlPort uint, frequency uint) erro
 		log.Fatal("iqListener is not a TCPListener")
 	}
 	go s.handleIQListener(iqListener, iqPort, distributor, stopReceiver)
+
+	rec.SetFrequency(frequency)
+	s.checkHPF()
 	return nil
 }
 
